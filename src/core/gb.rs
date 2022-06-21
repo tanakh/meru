@@ -39,7 +39,25 @@ pub struct GameBoyConfig {
     custom_boot_roms: CustomBootRoms,
     palette: PaletteSelect,
     color_correction: bool,
-    // key_config: KeyConfig,
+    key_config: KeyConfig,
+}
+
+fn default_key_config() -> KeyConfig {
+    #[rustfmt::skip]
+    let keys = vec![
+        ("up", any!(keycode!(Up), pad_button!(0, DPadUp))),
+        ("down", any!(keycode!(Down), pad_button!(0, DPadDown))),
+        ("left", any!(keycode!(Left), pad_button!(0, DPadLeft))),
+        ("right", any!(keycode!(Right), pad_button!(0, DPadRight))),
+        ("a", any!(keycode!(X), pad_button!(0, South))),
+        ("b", any!(keycode!(Z), pad_button!(0, West))),
+        ("start", any!(keycode!(Return), pad_button!(0, Start))),
+        ("select", any!(keycode!(RShift), pad_button!(0, Select))),
+    ];
+
+    KeyConfig {
+        keys: keys.into_iter().map(|(k, v)| (k.to_string(), v)).collect(),
+    }
 }
 
 impl Default for GameBoyConfig {
@@ -50,6 +68,7 @@ impl Default for GameBoyConfig {
             custom_boot_roms: CustomBootRoms::default(),
             palette: PaletteSelect::Pocket,
             color_correction: true,
+            key_config: default_key_config(),
         }
     }
 }
@@ -188,17 +207,17 @@ impl EmulatorCore for GameBoyCore {
             .set_dmg_palette(config.palette.get_palette())
             .set_boot_rom(config.boot_roms());
 
+        let gb = GameBoy::new(rom, backup.map(|r| r.to_vec()), &gb_config)?;
+
+        let width = gb.frame_buffer().width;
+        let height = gb.frame_buffer().height;
+
         Ok(Self {
-            gb: GameBoy::new(rom, backup.map(|r| r.to_vec()), &gb_config)?,
+            gb,
             config: config.clone(),
-            frame_buffer: super::FrameBuffer::default(),
+            frame_buffer: super::FrameBuffer::new(width, height),
             audio_buffer: super::AudioBuffer::default(),
         })
-    }
-
-    fn game_name(&self) -> &str {
-        // &self.game_name
-        panic!()
     }
 
     fn exec_frame(&mut self) {
@@ -229,6 +248,10 @@ impl EmulatorCore for GameBoyCore {
         &self.audio_buffer
     }
 
+    fn key_config(&self) -> &KeyConfig {
+        &self.config.key_config
+    }
+
     fn set_input(&mut self, input: &super::InputData) {
         let mut gb_input = tgbr_core::Input::default();
 
@@ -237,7 +260,8 @@ impl EmulatorCore for GameBoyCore {
                 .inputs
                 .iter()
                 .find_map(|r| (r.0 == key).then(|| r.1))
-                .unwrap()
+                // .unwrap()
+                .unwrap_or(false)
         };
 
         gb_input.pad.up = f("up");
@@ -264,38 +288,6 @@ impl EmulatorCore for GameBoyCore {
         self.gb.load_state(data)
     }
 }
-
-// impl Default for KeyConfig {
-//     fn default() -> Self {
-//         Self {
-//             up: any!(keycode!(Up), pad_button!(0, DPadUp)),
-//             down: any!(keycode!(Down), pad_button!(0, DPadDown)),
-//             left: any!(keycode!(Left), pad_button!(0, DPadLeft)),
-//             right: any!(keycode!(Right), pad_button!(0, DPadRight)),
-//             a: any!(keycode!(X), pad_button!(0, South)),
-//             b: any!(keycode!(Z), pad_button!(0, West)),
-//             start: any!(keycode!(Return), pad_button!(0, Start)),
-//             select: any!(keycode!(RShift), pad_button!(0, Select)),
-//         }
-//     }
-// }
-
-// impl KeyConfig {
-//     fn input(&self, input_state: &InputState) -> GameBoyInput {
-//         GameBoyInput {
-//             pad: Pad {
-//                 up: self.up.pressed(input_state),
-//                 down: self.down.pressed(input_state),
-//                 left: self.left.pressed(input_state),
-//                 right: self.right.pressed(input_state),
-//                 a: self.a.pressed(input_state),
-//                 b: self.b.pressed(input_state),
-//                 start: self.start.pressed(input_state),
-//                 select: self.select.pressed(input_state),
-//             },
-//         }
-//     }
-// }
 
 pub fn make_color_correction(color_correction: bool) -> Box<dyn ColorCorrection> {
     if color_correction {
@@ -391,16 +383,6 @@ impl ColorCorrection for CorrectColor {
 //         &mut self.custom_boot_roms
 //     }
 // }
-
-// /*
-// thumbnail: make_color_correction(
-//     gb_state.gb.model().is_cgb() && config.color_correction(),
-// )
-// .frame_buffer_to_image(gb_state.gb.frame_buffer()),
-// */
-// // pub fn color_correction(&self) -> bool {
-// //     self.color_correction
-// // }
 
 // // pub fn set_color_correction(&mut self, color_correction: bool) {
 // //     self.color_correction = color_correction;

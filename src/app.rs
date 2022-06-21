@@ -3,11 +3,10 @@ use bevy::{
     diagnostic::{Diagnostics, FrameTimeDiagnosticsPlugin},
     input::{mouse::MouseButtonInput, ElementState},
     prelude::*,
-    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
     window::{PresentMode, WindowMode},
 };
 use bevy_easings::EasingsPlugin;
-use bevy_egui::EguiPlugin;
+use bevy_egui::{EguiContext, EguiPlugin};
 use bevy_tiled_camera::TiledCameraPlugin;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::{
@@ -18,7 +17,8 @@ use std::{
 
 use crate::{
     config::{self, load_config, load_persistent_state},
-    core, hotkey, menu,
+    core::{self, AudioSample},
+    hotkey, menu,
     rewinding::{self},
 };
 
@@ -40,7 +40,7 @@ pub fn main(rom_file: Option<PathBuf>) -> Result<()> {
     .insert_resource(Msaa { samples: 4 })
     .insert_resource(bevy::log::LogSettings {
         level: bevy::utils::tracing::Level::INFO,
-        filter: "tgba_core".to_string(),
+        filter: "".to_string(),
     })
     .add_plugins(DefaultPlugins)
     .add_plugin(FrameTimeDiagnosticsPlugin)
@@ -82,9 +82,23 @@ pub fn main(rom_file: Option<PathBuf>) -> Result<()> {
 #[derive(Component)]
 pub struct PixelFont;
 
-fn setup(mut commands: Commands, mut fonts: ResMut<Assets<Font>>) {
+fn setup(
+    mut commands: Commands,
+    mut fonts: ResMut<Assets<Font>>,
+    mut egui_ctx: ResMut<EguiContext>,
+) {
     use bevy_tiled_camera::*;
     commands.spawn_bundle(TiledCameraBundle::new().with_target_resolution(1, [160, 144]));
+
+    let ctx = egui_ctx.ctx_mut();
+
+    let mut style = (*ctx.style()).clone();
+
+    for style in style.text_styles.iter_mut() {
+        style.1.size *= 2.0;
+    }
+
+    ctx.set_style(style);
 
     let pixel_font =
         Font::try_from_bytes(include_bytes!("../assets/fonts/PixelMplus12-Regular.ttf").to_vec())
@@ -148,9 +162,9 @@ fn setup_audio(world: &mut World) {
                 let mut lock = audio_queue.lock().unwrap();
 
                 for i in (0..data.len()).step_by(2) {
-                    if let Some((l, r)) = lock.pop_front() {
-                        data[i] = l;
-                        data[i + 1] = r;
+                    if let Some(sample) = lock.pop_front() {
+                        data[i] = sample.left;
+                        data[i + 1] = sample.right;
                     } else {
                         data[i] = 0;
                         data[i + 1] = 0;
@@ -173,11 +187,9 @@ pub enum AppState {
     Rewinding,
 }
 
-pub struct GameScreen(pub Handle<Image>);
-
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct AudioStreamQueue {
-    queue: Arc<Mutex<VecDeque<(i16, i16)>>>,
+    pub queue: Arc<Mutex<VecDeque<AudioSample>>>,
 }
 
 #[derive(Default)]

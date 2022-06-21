@@ -26,7 +26,7 @@ pub enum MenuEvent {
 
 impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
-        app.add_system_set(SystemSet::on_enter(AppState::Menu).with_system(menu_setup))
+        app.add_system_set(SystemSet::on_enter(AppState::Menu).with_system(setup_menu_system))
             .add_system_set(
                 SystemSet::on_update(AppState::Menu)
                     .with_system(menu_system)
@@ -37,26 +37,15 @@ impl Plugin for MenuPlugin {
     }
 }
 
-fn menu_setup(
+fn setup_menu_system(
     mut commands: Commands,
     mut windows: ResMut<Windows>,
-    mut egui_ctx: ResMut<EguiContext>,
     fullscreen_state: Res<FullscreenState>,
 ) {
     if !fullscreen_state.0 {
         let window = windows.get_primary_mut().unwrap();
         window.set_resolution(MENU_WIDTH as f32, MENU_HEIGHT as f32);
     }
-
-    let ctx = egui_ctx.ctx_mut();
-
-    let mut style = (*ctx.style()).clone();
-
-    for style in style.text_styles.iter_mut() {
-        style.1.size *= 2.0;
-    }
-
-    ctx.set_style(style);
 
     commands.insert_resource(MenuState::default());
 }
@@ -187,7 +176,7 @@ fn menu_system(
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
                         if let Some(emulator) = &emulator {
-                            ui.label(format!("Running `{}`", emulator.game_name()));
+                            ui.label(format!("Running `{}`", emulator.game_name));
                             if ui.button("Resume").clicked() {
                                 app_state.set(AppState::Running).unwrap();
                             }

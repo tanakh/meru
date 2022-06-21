@@ -6,8 +6,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::config::Config;
-
 fn atomic_write_file(file: &Path, data: &[u8]) -> Result<()> {
     use std::io::Write;
     let mut f = tempfile::NamedTempFile::new()?;
@@ -35,16 +33,16 @@ fn get_state_file_path(rom_file: &Path, slot: usize, state_dir: &Path) -> Result
     Ok(state_dir.join(state_file))
 }
 
-pub fn get_backup_dir(core_abbrev: &str, config: &Config) -> Result<PathBuf> {
-    let dir = config.save_dir().join(core_abbrev);
+pub fn get_backup_dir(core_abbrev: &str, save_dir: &Path) -> Result<PathBuf> {
+    let dir = save_dir.join(core_abbrev);
     if !dir.exists() {
         fs::create_dir_all(&dir)?;
     }
     Ok(dir)
 }
 
-pub fn load_backup(core_abbrev: &str, name: &str, config: &Config) -> Result<Option<Vec<u8>>> {
-    let save_file_path = get_backup_dir(core_abbrev, config)?.join(format!("{name}.sav"));
+pub fn load_backup(core_abbrev: &str, name: &str, save_dir: &Path) -> Result<Option<Vec<u8>>> {
+    let save_file_path = get_backup_dir(core_abbrev, save_dir)?.join(format!("{name}.sav"));
 
     Ok(if save_file_path.is_file() {
         info!("Loading backup RAM: `{}`", save_file_path.display());
@@ -54,8 +52,8 @@ pub fn load_backup(core_abbrev: &str, name: &str, config: &Config) -> Result<Opt
     })
 }
 
-pub fn save_backup(core_abbrev: &str, name: &str, ram: &[u8], config: &Config) -> Result<()> {
-    let save_file_path = get_backup_dir(core_abbrev, config)?.join(format!("{name}.sav"));
+pub fn save_backup(core_abbrev: &str, name: &str, ram: &[u8], save_dir: &Path) -> Result<()> {
+    let save_file_path = get_backup_dir(core_abbrev, save_dir)?.join(format!("{name}.sav"));
 
     if !save_file_path.exists() {
         info!("Creating backup RAM file: `{}`", save_file_path.display());

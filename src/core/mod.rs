@@ -9,11 +9,16 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
     collections::VecDeque,
     fs::{self, File},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use crate::{
-    app::AppState, config::Config, file::load_backup, key_assign::*, rewinding::AutoSavedState,
+    app::{AppState, AudioStreamQueue, ScreenSprite, WindowControlEvent},
+    config::Config,
+    file::{load_backup, save_backup},
+    hotkey,
+    key_assign::*,
+    rewinding::AutoSavedState,
 };
 
 #[derive(Default)]
@@ -24,6 +29,12 @@ pub struct FrameBuffer {
 }
 
 impl FrameBuffer {
+    fn new(width: usize, height: usize) -> Self {
+        let mut ret = Self::default();
+        ret.resize(width, height);
+        ret
+    }
+
     fn resize(&mut self, width: usize, height: usize) {
         self.width = width;
         self.height = height;
@@ -61,9 +72,26 @@ impl AudioSample {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct KeyConfig {
+    pub keys: Vec<(String, KeyAssign)>,
+}
+
+impl KeyConfig {
+    fn input(&self, input_state: &InputState) -> InputData {
+        let mut inputs = Vec::with_capacity(self.keys.len());
+
+        for (key, assign) in &self.keys {
+            inputs.push((key.clone(), assign.pressed(input_state)));
+        }
+
+        InputData { inputs }
+    }
+}
+
 #[derive(Default)]
 pub struct InputData {
-    pub inputs: Vec<(&'static str, bool)>,
+    pub inputs: Vec<(String, bool)>,
 }
 
 pub struct CoreInfo {
@@ -81,13 +109,13 @@ pub trait EmulatorCore {
     where
         Self: Sized;
 
-    fn game_name(&self) -> &str;
-
     fn exec_frame(&mut self);
     fn reset(&mut self);
 
     fn frame_buffer(&self) -> &FrameBuffer;
     fn audio_buffer(&self) -> &AudioBuffer;
+
+    fn key_config(&self) -> &KeyConfig;
     fn set_input(&mut self, input: &InputData);
 
     fn backup(&self) -> Option<Vec<u8>>;
@@ -97,13 +125,15 @@ pub trait EmulatorCore {
 }
 
 pub trait EmulatorCoreWrap: Sync + Send {
-    fn game_name(&self) -> &str;
+    fn core_info(&self) -> &CoreInfo;
 
     fn exec_frame(&mut self);
     fn reset(&mut self);
 
     fn frame_buffer(&self) -> &FrameBuffer;
     fn audio_buffer(&self) -> &AudioBuffer;
+
+    fn key_config(&self) -> &KeyConfig;
     fn set_input(&mut self, input: &InputData);
 
     fn backup(&self) -> Option<Vec<u8>>;
@@ -113,9 +143,10 @@ pub trait EmulatorCoreWrap: Sync + Send {
 }
 
 impl<T: EmulatorCore + Sync + Send> EmulatorCoreWrap for T {
-    fn game_name(&self) -> &str {
-        self.game_name()
+    fn core_info(&self) -> &CoreInfo {
+        T::core_info()
     }
+
     fn exec_frame(&mut self) {
         self.exec_frame();
     }
@@ -127,6 +158,9 @@ impl<T: EmulatorCore + Sync + Send> EmulatorCoreWrap for T {
     }
     fn audio_buffer(&self) -> &AudioBuffer {
         self.audio_buffer()
+    }
+    fn key_config(&self) -> &KeyConfig {
+        self.key_config()
     }
     fn set_input(&mut self, input: &InputData) {
         self.set_input(input);
@@ -144,19 +178,27 @@ impl<T: EmulatorCore + Sync + Send> EmulatorCoreWrap for T {
 
 pub struct Emulator {
     pub core: Box<dyn EmulatorCoreWrap>,
+    pub game_name: String,
     pub auto_saved_states: VecDeque<AutoSavedState>,
     pub auto_state_save_limit: usize,
+    save_dir: PathBuf,
+    frames: usize,
 }
 
 impl Drop for Emulator {
     fn drop(&mut self) {
-        // if let Some(ram) = self.gb.backup_ram() {
-        //     if let Err(err) = save_backup_ram(&self.rom_file, &ram, &self.save_dir) {
-        //         error!("Failed to save backup ram: {err}");
-        //     }
-        // } else {
-        //     info!("No backup RAM to save");
-        // }
+        if let Some(ram) = self.core.backup() {
+            if let Err(err) = save_backup(
+                self.core.core_info().abbrev,
+                &self.game_name,
+                &ram,
+                &self.save_dir,
+            ) {
+                error!("Failed to save backup ram: {err}");
+            }
+        } else {
+            info!("No backup RAM to save");
+        }
     }
 }
 
@@ -181,9 +223,9 @@ fn make_core_from_data<
     data: F,
     config: &Config,
 ) -> Result<Box<dyn EmulatorCoreWrap>> {
-    let core_info = T::core_info();
+    let core_info = <T as EmulatorCore>::core_info();
     if core_info.file_extensions.contains(&ext) {
-        let backup = load_backup(core_info.abbrev, name, config)?;
+        let backup = load_backup(core_info.abbrev, name, config.save_dir())?;
         let data = data()?;
         let core = T::try_from_file(&data, backup.as_deref(), &config.core_config::<T>())?;
         Ok(Box::new(core))
@@ -212,8 +254,11 @@ fn try_make_emulator(
             if let Ok(core) = make_core_from_data::<$core, _>(&name, &ext, data, config) {
                 return Ok(Emulator {
                     core,
+                    game_name: name.to_string(),
                     auto_saved_states: VecDeque::new(),
                     auto_state_save_limit: 0,
+                    save_dir: config.save_dir().to_owned(),
+                    frames: 0,
                 });
             }
         };
@@ -259,10 +304,6 @@ impl Emulator {
         }
     }
 
-    pub fn game_name(&self) -> &str {
-        self.core.game_name()
-    }
-
     pub fn reset(&mut self) {
         self.core.reset();
     }
@@ -293,11 +334,6 @@ impl Emulator {
     pub fn load_state(&mut self, data: &[u8]) -> Result<()> {
         self.core.load_state(data)
     }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct KeyConfig {
-    pub keys: Vec<(String, KeyAssign)>,
 }
 
 fn frame_buffer_to_image(frame_buffer: &FrameBuffer) -> Image {
@@ -334,148 +370,169 @@ pub struct EmulatorPlugin;
 
 impl Plugin for EmulatorPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<InputData>().add_system_set(
-            SystemSet::on_update(AppState::Running).with_system(input_system.label("input")),
-        );
-        //             .add_system_set(
-        //                 SystemSet::on_enter(AppState::Running).with_system(setup_gameboy_system),
-        //             )
-        //             .add_system_set(
-        //                 SystemSet::on_resume(AppState::Running).with_system(resume_gameboy_system),
-        //             )
-        //             .add_system_set(
-        //                 SystemSet::on_update(AppState::Running)
-        //                     .with_system(gameboy_system)
-        //                     .after("input"),
-        //             )
-        //             .add_system_set(SystemSet::on_exit(AppState::Running).with_system(exit_gameboy_system));
+        app.init_resource::<InputData>()
+            .add_system_set(
+                SystemSet::on_update(AppState::Running)
+                    .with_system(emulator_input_system.label("input")),
+            )
+            .add_system_set(
+                SystemSet::on_enter(AppState::Running).with_system(setup_emulator_system),
+            )
+            .add_system_set(
+                SystemSet::on_resume(AppState::Running).with_system(resume_emulator_system),
+            )
+            .add_system_set(
+                SystemSet::on_update(AppState::Running)
+                    .with_system(emulator_system)
+                    .after("input"),
+            )
+            .add_system_set(
+                SystemSet::on_exit(AppState::Running).with_system(exit_emulator_system),
+            );
     }
 }
 
-pub fn input_system(
-    config: Res<Config>,
+pub fn emulator_input_system(
+    emulator: Res<Emulator>,
     input_keycode: Res<Input<KeyCode>>,
     input_gamepad_button: Res<Input<GamepadButton>>,
     input_gamepad_axis: Res<Axis<GamepadAxis>>,
     mut input: ResMut<InputData>,
 ) {
-    // *input = config.key_config().input(&InputState::new(
-    //     &input_keycode,
-    //     &input_gamepad_button,
-    //     &input_gamepad_axis,
-    // ));
+    *input = emulator.core.key_config().input(&InputState::new(
+        &input_keycode,
+        &input_gamepad_button,
+        &input_gamepad_axis,
+    ));
 }
 
-// fn setup_gameboy_system(
-//     mut commands: Commands,
-//     gb_state: Res<GameBoyState>,
-//     mut images: ResMut<Assets<Image>>,
-//     mut event: EventWriter<WindowControlEvent>,
-// ) {
-//     let width = gb_state.gb.frame_buffer().width as u32;
-//     let height = gb_state.gb.frame_buffer().height as u32;
-//     let img = Image::new(
-//         Extent3d {
-//             width,
-//             height,
-//             depth_or_array_layers: 1,
-//         },
-//         TextureDimension::D2,
-//         vec![0; (width * height * 4) as usize],
-//         TextureFormat::Rgba8UnormSrgb,
-//     );
+struct GameScreen(pub Handle<Image>);
 
-//     let texture = images.add(img);
-//     commands
-//         .spawn_bundle(SpriteBundle {
-//             texture: texture.clone(),
-//             ..Default::default()
-//         })
-//         .insert(ScreenSprite);
+fn setup_emulator_system(
+    mut commands: Commands,
+    emulator: Res<Emulator>,
+    mut images: ResMut<Assets<Image>>,
+    mut event: EventWriter<WindowControlEvent>,
+) {
+    let width = emulator.core.frame_buffer().width as u32;
+    let height = emulator.core.frame_buffer().height as u32;
+    let img = Image::new(
+        Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        vec![0; (width * height * 4) as usize],
+        TextureFormat::Rgba8UnormSrgb,
+    );
 
-//     commands.insert_resource(GameScreen(texture));
+    let texture = images.add(img);
+    commands
+        .spawn_bundle(SpriteBundle {
+            texture: texture.clone(),
+            ..Default::default()
+        })
+        .insert(ScreenSprite);
 
-//     event.send(WindowControlEvent::Restore);
-// }
+    commands.insert_resource(GameScreen(texture));
 
-// fn resume_gameboy_system(mut event: EventWriter<WindowControlEvent>) {
-//     event.send(WindowControlEvent::Restore);
-// }
+    event.send(WindowControlEvent::Restore);
+}
 
-// fn exit_gameboy_system(mut commands: Commands, screen_entity: Query<Entity, With<ScreenSprite>>) {
-//     commands.entity(screen_entity.single()).despawn();
-// }
+fn resume_emulator_system(mut event: EventWriter<WindowControlEvent>) {
+    event.send(WindowControlEvent::Restore);
+}
 
-// fn gameboy_system(
-//     screen: Res<GameScreen>,
-//     // config: Res<config::Config>,
-//     mut state: ResMut<GameBoyState>,
-//     mut images: ResMut<Assets<Image>>,
-//     input: Res<GameBoyInput>,
-//     audio_queue: Res<AudioStreamQueue>,
-//     is_turbo: Res<hotkey::IsTurbo>,
-// ) {
-//     state.gb.set_input(&*input);
+fn exit_emulator_system(mut commands: Commands, screen_entity: Query<Entity, With<ScreenSprite>>) {
+    commands.entity(screen_entity.single()).despawn();
+}
 
-//     let samples_per_frame = 48000 / 60;
+fn emulator_system(
+    screen: Res<GameScreen>,
+    config: Res<Config>,
+    mut emulator: ResMut<Emulator>,
+    mut images: ResMut<Assets<Image>>,
+    input: Res<InputData>,
+    audio_queue: Res<AudioStreamQueue>,
+    is_turbo: Res<hotkey::IsTurbo>,
+) {
+    emulator.core.set_input(&*input);
 
-//     let mut queue = audio_queue.queue.lock().unwrap();
+    let samples_per_frame = 48000 / 60;
 
-//     let push_audio_queue = |queue: &mut VecDeque<(i16, i16)>, audio_buffer: &AudioBuffer| {
-//         for sample in &audio_buffer.buf {
-//             queue.push_back((sample.left, sample.right));
-//         }
-//     };
+    let mut queue = audio_queue.queue.lock().unwrap();
 
-//     let cc = make_color_correction(state.gb.model().is_cgb() && config.color_correction());
+    let push_audio_queue = |queue: &mut VecDeque<AudioSample>, audio_buffer: &AudioBuffer| {
+        for sample in &audio_buffer.samples {
+            queue.push_back(sample.clone());
+        }
+    };
 
-//     if !is_turbo.0 {
-//         if queue.len() > samples_per_frame * 4 {
-//             // execution too fast. wait 1 frame.
-//             return;
-//         }
+    if !is_turbo.0 {
+        if queue.len() > samples_per_frame * 4 {
+            // execution too fast. wait 1 frame.
+            return;
+        }
 
-//         let mut exec_frame = |queue: &mut VecDeque<(i16, i16)>| {
-//             state.gb.exec_frame();
-//             if state.frames % config.auto_state_save_freq() == 0 {
-//                 let saved_state = AutoSavedState {
-//                     data: state.gb.save_state(),
-//                     thumbnail: cc.frame_buffer_to_image(state.gb.frame_buffer()),
-//                 };
+        let mut exec_frame = |queue: &mut VecDeque<AudioSample>| {
+            emulator.core.exec_frame();
+            if emulator.frames % config.auto_state_save_freq() == 0 {
+                let saved_state = AutoSavedState {
+                    data: emulator.core.save_state(),
+                    thumbnail: frame_buffer_to_image(emulator.core.frame_buffer()),
+                };
 
-//                 state.auto_saved_states.push_back(saved_state);
-//                 if state.auto_saved_states.len() > config.auto_state_save_limit() {
-//                     state.auto_saved_states.pop_front();
-//                 }
-//             }
-//             push_audio_queue(&mut *queue, state.gb.audio_buffer());
-//             state.frames += 1;
-//         };
+                emulator.auto_saved_states.push_back(saved_state);
+                if emulator.auto_saved_states.len() > config.auto_state_save_limit() {
+                    emulator.auto_saved_states.pop_front();
+                }
+            }
+            push_audio_queue(&mut *queue, emulator.core.audio_buffer());
+            emulator.frames += 1;
+        };
 
-//         if queue.len() < samples_per_frame * 2 {
-//             // execution too slow. run 2 frame for supply enough audio samples.
-//             exec_frame(&mut *queue);
-//         }
-//         exec_frame(&mut *queue);
+        if queue.len() < samples_per_frame * 2 {
+            // execution too slow. run 2 frame for supply enough audio samples.
+            exec_frame(&mut *queue);
+        }
+        exec_frame(&mut *queue);
 
-//         // Update texture
-//         let fb = state.gb.frame_buffer();
-//         let image = images.get_mut(&screen.0).unwrap();
-//         cc.copy_frame_buffer(&mut image.data, fb);
-//     } else {
-//         for _ in 0..config.frame_skip_on_turbo() {
-//             state.gb.exec_frame();
-//             if queue.len() < samples_per_frame * 2 {
-//                 push_audio_queue(&mut *queue, state.gb.audio_buffer());
-//             }
-//         }
-//         // Update texture
-//         let fb = state.gb.frame_buffer();
-//         let image = images.get_mut(&screen.0).unwrap();
-//         cc.copy_frame_buffer(&mut image.data, fb);
-//         state.frames += 1;
-//     }
-// }
+        // Update texture
+        let fb = emulator.core.frame_buffer();
+        let image = images.get_mut(&screen.0).unwrap();
+        copy_frame_buffer(&mut image.data, fb);
+    } else {
+        for _ in 0..config.frame_skip_on_turbo() {
+            emulator.core.exec_frame();
+            if queue.len() < samples_per_frame * 2 {
+                push_audio_queue(&mut *queue, emulator.core.audio_buffer());
+            }
+        }
+        // Update texture
+        let fb = emulator.core.frame_buffer();
+        let image = images.get_mut(&screen.0).unwrap();
+        copy_frame_buffer(&mut image.data, fb);
+        emulator.frames += 1;
+    }
+}
+
+fn copy_frame_buffer(data: &mut [u8], frame_buffer: &FrameBuffer) {
+    let width = frame_buffer.width;
+    let height = frame_buffer.height;
+
+    for y in 0..height {
+        for x in 0..width {
+            let ix = y * width + x;
+            let pixel = &mut data[ix * 4..ix * 4 + 4];
+            let c = &frame_buffer.buffer[ix];
+            pixel[0] = c.r;
+            pixel[1] = c.g;
+            pixel[2] = c.b;
+            pixel[3] = 0xff;
+        }
+    }
+}
 
 // impl GameBoyState {
 
