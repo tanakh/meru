@@ -4,12 +4,10 @@ use serde::{Deserialize, Serialize};
 use std::{cmp::max, fmt::Display};
 
 use crate::{
-    app::{
-        make_color_correction, AppState, GameBoyState, ShowMessage, UiState, WindowControlEvent,
-    },
+    app::{AppState, ShowMessage, UiState, WindowControlEvent},
     config::Config,
+    core::Emulator,
     key_assign::*,
-    rewinding::AutoSavedState,
 };
 
 pub struct HotKeyPlugin;
@@ -146,7 +144,7 @@ fn process_hotkey(
     mut config: ResMut<Config>,
     mut reader: EventReader<HotKey>,
     mut app_state: ResMut<State<AppState>>,
-    mut gb_state: Option<ResMut<GameBoyState>>,
+    mut emulator: Option<ResMut<Emulator>>,
     mut ui_state: ResMut<UiState>,
     mut window_control_event: EventWriter<WindowControlEvent>,
     mut message_event: EventWriter<ShowMessage>,
@@ -154,15 +152,15 @@ fn process_hotkey(
     for hotkey in reader.iter() {
         match hotkey {
             HotKey::Reset => {
-                if let Some(state) = &mut gb_state {
-                    state.gb.reset();
+                if let Some(emulator) = &mut emulator {
+                    emulator.reset();
                     message_event.send(ShowMessage("Reset machine".to_string()));
                 }
             }
             HotKey::StateSave => {
-                if let Some(state) = &mut gb_state {
-                    state
-                        .save_state(ui_state.state_save_slot, config.as_ref())
+                if let Some(emulator) = &emulator {
+                    emulator
+                        .save_state_to_slot(ui_state.state_save_slot)
                         .unwrap();
                     message_event.send(ShowMessage(format!(
                         "State saved: #{}",
@@ -171,8 +169,8 @@ fn process_hotkey(
                 }
             }
             HotKey::StateLoad => {
-                if let Some(state) = &mut gb_state {
-                    if let Err(e) = state.load_state(ui_state.state_save_slot, config.as_ref()) {
+                if let Some(emulator) = &mut emulator {
+                    if let Err(e) = emulator.load_state_from_slot(ui_state.state_save_slot) {
                         message_event.send(ShowMessage("Failed to load state".to_string()));
                         error!("Failed to load state: {}", e);
                     } else {
@@ -199,21 +197,8 @@ fn process_hotkey(
             }
             HotKey::Rewind => {
                 if app_state.current() == &AppState::Running {
-                    let gb_state = gb_state.as_mut().unwrap();
-
-                    let saved_state = AutoSavedState {
-                        data: gb_state.gb.save_state(),
-                        thumbnail: make_color_correction(
-                            gb_state.gb.model().is_cgb() && config.color_correction(),
-                        )
-                        .frame_buffer_to_image(gb_state.gb.frame_buffer()),
-                    };
-
-                    gb_state.auto_saved_states.push_back(saved_state);
-                    if gb_state.auto_saved_states.len() > config.auto_state_save_limit() {
-                        gb_state.auto_saved_states.pop_front();
-                    }
-
+                    let emulator = emulator.as_mut().unwrap();
+                    emulator.push_auto_save();
                     app_state.push(AppState::Rewinding).unwrap();
                 }
             }
@@ -221,7 +206,7 @@ fn process_hotkey(
                 if app_state.current() == &AppState::Running {
                     app_state.set(AppState::Menu).unwrap();
                 }
-                if app_state.current() == &AppState::Menu && gb_state.is_some() {
+                if app_state.current() == &AppState::Menu && emulator.is_some() {
                     app_state.set(AppState::Running).unwrap();
                 }
             }

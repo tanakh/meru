@@ -10,26 +10,16 @@ use bevy_easings::EasingsPlugin;
 use bevy_egui::EguiPlugin;
 use bevy_tiled_camera::TiledCameraPlugin;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use log::{error, info, log_enabled};
 use std::{
-    cmp::min,
     collections::VecDeque,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, Mutex},
 };
 
-use tgbr_core::{AudioBuffer, Config, FrameBuffer, GameBoy, Input as GameBoyInput};
-
 use crate::{
     config::{self, load_config, load_persistent_state},
-    file::{
-        load_backup_ram, load_rom, load_state_data, print_rom_info, save_backup_ram,
-        save_state_data,
-    },
-    hotkey,
-    input::gameboy_input_system,
-    menu,
-    rewinding::{self, AutoSavedState},
+    core, hotkey, menu,
+    rewinding::{self},
 };
 
 pub fn main(rom_file: Option<PathBuf>) -> Result<()> {
@@ -59,7 +49,7 @@ pub fn main(rom_file: Option<PathBuf>) -> Result<()> {
     .add_plugin(EguiPlugin)
     .add_plugin(hotkey::HotKeyPlugin)
     .add_plugin(menu::MenuPlugin)
-    .add_plugin(GameBoyPlugin)
+    .add_plugin(core::EmulatorPlugin)
     .add_plugin(rewinding::RewindingPlugin)
     .add_plugin(FpsPlugin)
     .add_plugin(MessagePlugin)
@@ -72,13 +62,15 @@ pub fn main(rom_file: Option<PathBuf>) -> Result<()> {
     .add_startup_stage("single-startup", SystemStage::single_threaded())
     .add_startup_system_to_stage("single-startup", set_window_icon);
 
-    if let Some(rom_file) = rom_file {
-        let gb = GameBoyState::new(rom_file, &config)?;
-        app.insert_resource(gb);
-        app.add_state(AppState::Running);
-    } else {
-        app.add_state(AppState::Menu);
-    }
+    // if let Some(rom_file) = rom_file {
+    //     let gb = GameBoyState::new(rom_file, &config)?;
+    //     app.insert_resource(gb);
+    //     app.add_state(AppState::Running);
+    // } else {
+    //     app.add_state(AppState::Menu);
+    // }
+
+    app.add_state(AppState::Menu);
 
     app.insert_resource(config);
     app.insert_resource(load_persistent_state()?);
@@ -181,103 +173,12 @@ pub enum AppState {
     Rewinding,
 }
 
-pub struct GameBoyState {
-    pub gb: GameBoy,
-    pub rom_file: PathBuf,
-    pub save_dir: PathBuf,
-    frames: usize,
-    pub auto_saved_states: VecDeque<AutoSavedState>,
-}
-
-impl GameBoyState {
-    pub fn new(rom_file: impl AsRef<Path>, config: &crate::config::Config) -> Result<Self> {
-        let rom = load_rom(rom_file.as_ref())?;
-        if log_enabled!(log::Level::Info) {
-            print_rom_info(&rom.info());
-        }
-
-        let save_dir = config.save_dir().to_owned();
-        let backup_ram = load_backup_ram(rom_file.as_ref(), &save_dir)?;
-
-        let config = Config::default()
-            .set_model(config.model())
-            .set_dmg_palette(config.palette().get_palette())
-            .set_boot_rom(config.boot_roms());
-
-        let gb = GameBoy::new(rom, backup_ram, &config)?;
-
-        Ok(Self {
-            gb,
-            rom_file: rom_file.as_ref().to_owned(),
-            save_dir,
-            frames: 0,
-            auto_saved_states: VecDeque::new(),
-        })
-    }
-
-    pub fn save_state(&self, slot: usize, config: &config::Config) -> Result<()> {
-        let data = self.gb.save_state();
-        save_state_data(&self.rom_file, slot, &data, config.state_dir())
-    }
-
-    pub fn load_state(&mut self, slot: usize, config: &config::Config) -> Result<()> {
-        let data = load_state_data(&self.rom_file, slot, config.state_dir())?;
-        self.gb.load_state(&data)
-    }
-}
-
-impl Drop for GameBoyState {
-    fn drop(&mut self) {
-        if let Some(ram) = self.gb.backup_ram() {
-            if let Err(err) = save_backup_ram(&self.rom_file, &ram, &self.save_dir) {
-                error!("Failed to save backup ram: {err}");
-            }
-        } else {
-            info!("No backup RAM to save");
-        }
-    }
-}
-
-struct GameBoyPlugin;
-
-impl Plugin for GameBoyPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<GameBoyInput>()
-            .add_system_set(
-                SystemSet::on_update(AppState::Running)
-                    .with_system(gameboy_input_system.label("input")),
-            )
-            .add_system_set(
-                SystemSet::on_enter(AppState::Running).with_system(setup_gameboy_system),
-            )
-            .add_system_set(
-                SystemSet::on_resume(AppState::Running).with_system(resume_gameboy_system),
-            )
-            .add_system_set(
-                SystemSet::on_update(AppState::Running)
-                    .with_system(gameboy_system)
-                    .after("input"),
-            )
-            .add_system_set(SystemSet::on_exit(AppState::Running).with_system(exit_gameboy_system));
-    }
-}
-
-pub struct GameScreen(Handle<Image>);
+pub struct GameScreen(pub Handle<Image>);
 
 #[derive(Debug, Default)]
-struct AudioStreamQueue {
+pub struct AudioStreamQueue {
     queue: Arc<Mutex<VecDeque<(i16, i16)>>>,
 }
-
-// impl AudioStream for AudioStreamQueue {
-//     fn next(&mut self, _: f64) -> Frame {
-//         let mut buffer = self.queue.lock().unwrap();
-//         buffer.pop_front().unwrap_or(Frame {
-//             left: 0.0,
-//             right: 0.0,
-//         })
-//     }
-// }
 
 #[derive(Default)]
 pub struct UiState {
@@ -286,46 +187,6 @@ pub struct UiState {
 
 #[derive(Component)]
 pub struct ScreenSprite;
-
-fn setup_gameboy_system(
-    mut commands: Commands,
-    gb_state: Res<GameBoyState>,
-    mut images: ResMut<Assets<Image>>,
-    mut event: EventWriter<WindowControlEvent>,
-) {
-    let width = gb_state.gb.frame_buffer().width as u32;
-    let height = gb_state.gb.frame_buffer().height as u32;
-    let img = Image::new(
-        Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        vec![0; (width * height * 4) as usize],
-        TextureFormat::Rgba8UnormSrgb,
-    );
-
-    let texture = images.add(img);
-    commands
-        .spawn_bundle(SpriteBundle {
-            texture: texture.clone(),
-            ..Default::default()
-        })
-        .insert(ScreenSprite);
-
-    commands.insert_resource(GameScreen(texture));
-
-    event.send(WindowControlEvent::Restore);
-}
-
-fn resume_gameboy_system(mut event: EventWriter<WindowControlEvent>) {
-    event.send(WindowControlEvent::Restore);
-}
-
-fn exit_gameboy_system(mut commands: Commands, screen_entity: Query<Entity, With<ScreenSprite>>) {
-    commands.entity(screen_entity.single()).despawn();
-}
 
 #[derive(Default)]
 pub struct FullscreenState(pub bool);
@@ -406,147 +267,6 @@ fn restore_window(window: &mut Window, fullscreen: bool, scaling: usize) {
     if !fullscreen {
         let scale = scaling as f32;
         window.set_resolution(width as f32 * scale, height as f32 * scale);
-    }
-}
-
-fn gameboy_system(
-    screen: Res<GameScreen>,
-    config: Res<config::Config>,
-    mut state: ResMut<GameBoyState>,
-    mut images: ResMut<Assets<Image>>,
-    input: Res<GameBoyInput>,
-    audio_queue: Res<AudioStreamQueue>,
-    is_turbo: Res<hotkey::IsTurbo>,
-) {
-    state.gb.set_input(&*input);
-
-    let samples_per_frame = 48000 / 60;
-
-    let mut queue = audio_queue.queue.lock().unwrap();
-
-    let push_audio_queue = |queue: &mut VecDeque<(i16, i16)>, audio_buffer: &AudioBuffer| {
-        for sample in &audio_buffer.buf {
-            queue.push_back((sample.left, sample.right));
-        }
-    };
-
-    let cc = make_color_correction(state.gb.model().is_cgb() && config.color_correction());
-
-    if !is_turbo.0 {
-        if queue.len() > samples_per_frame * 4 {
-            // execution too fast. wait 1 frame.
-            return;
-        }
-
-        let mut exec_frame = |queue: &mut VecDeque<(i16, i16)>| {
-            state.gb.exec_frame();
-            if state.frames % config.auto_state_save_freq() == 0 {
-                let saved_state = AutoSavedState {
-                    data: state.gb.save_state(),
-                    thumbnail: cc.frame_buffer_to_image(state.gb.frame_buffer()),
-                };
-
-                state.auto_saved_states.push_back(saved_state);
-                if state.auto_saved_states.len() > config.auto_state_save_limit() {
-                    state.auto_saved_states.pop_front();
-                }
-            }
-            push_audio_queue(&mut *queue, state.gb.audio_buffer());
-            state.frames += 1;
-        };
-
-        if queue.len() < samples_per_frame * 2 {
-            // execution too slow. run 2 frame for supply enough audio samples.
-            exec_frame(&mut *queue);
-        }
-        exec_frame(&mut *queue);
-
-        // Update texture
-        let fb = state.gb.frame_buffer();
-        let image = images.get_mut(&screen.0).unwrap();
-        cc.copy_frame_buffer(&mut image.data, fb);
-    } else {
-        for _ in 0..config.frame_skip_on_turbo() {
-            state.gb.exec_frame();
-            if queue.len() < samples_per_frame * 2 {
-                push_audio_queue(&mut *queue, state.gb.audio_buffer());
-            }
-        }
-        // Update texture
-        let fb = state.gb.frame_buffer();
-        let image = images.get_mut(&screen.0).unwrap();
-        cc.copy_frame_buffer(&mut image.data, fb);
-        state.frames += 1;
-    }
-}
-
-pub fn make_color_correction(color_correction: bool) -> Box<dyn ColorCorrection> {
-    if color_correction {
-        Box::new(CorrectColor) as Box<dyn ColorCorrection>
-    } else {
-        Box::new(RawColor) as Box<dyn ColorCorrection>
-    }
-}
-
-pub trait ColorCorrection {
-    fn translate(&self, c: &tgbr_core::Color) -> tgbr_core::Color;
-
-    fn frame_buffer_to_image(&self, frame_buffer: &FrameBuffer) -> Image {
-        let width = frame_buffer.width as u32;
-        let height = frame_buffer.height as u32;
-
-        let mut data = vec![0; width as usize * height as usize * 4];
-        self.copy_frame_buffer(&mut data, frame_buffer);
-        Image::new(
-            Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            TextureDimension::D2,
-            data,
-            TextureFormat::Rgba8UnormSrgb,
-        )
-    }
-
-    fn copy_frame_buffer(&self, data: &mut [u8], frame_buffer: &FrameBuffer) {
-        let width = frame_buffer.width;
-        let height = frame_buffer.height;
-
-        for y in 0..height {
-            for x in 0..width {
-                let ix = y * width + x;
-                let pixel = &mut data[ix * 4..ix * 4 + 4];
-                let c = self.translate(&frame_buffer.buf[ix]);
-                pixel[0] = c.r;
-                pixel[1] = c.g;
-                pixel[2] = c.b;
-                pixel[3] = 0xff;
-            }
-        }
-    }
-}
-
-struct RawColor;
-
-impl ColorCorrection for RawColor {
-    fn translate(&self, c: &tgbr_core::Color) -> tgbr_core::Color {
-        *c
-    }
-}
-
-struct CorrectColor;
-
-impl ColorCorrection for CorrectColor {
-    fn translate(&self, c: &tgbr_core::Color) -> tgbr_core::Color {
-        let r = c.r as u16;
-        let g = c.g as u16;
-        let b = c.b as u16;
-        tgbr_core::Color {
-            r: min(240, ((r * 26 + g * 4 + b * 2) / 32) as u8),
-            g: min(240, ((g * 24 + b * 8) / 32) as u8),
-            b: min(240, ((r * 6 + g * 4 + b * 22) / 32) as u8),
-        }
     }
 }
 

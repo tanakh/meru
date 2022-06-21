@@ -1,9 +1,10 @@
 use crate::{
-    app::{AppState, FullscreenState, GameBoyState, ShowMessage, WindowControlEvent},
-    config::{BootRom, Config, PaletteSelect, PersistentState},
+    app::{AppState, FullscreenState, ShowMessage, WindowControlEvent},
+    config::{Config, PersistentState},
+    core::Emulator,
     file::state_data_date,
     hotkey::{HotKey, HotKeys},
-    input::KeyConfig,
+    // input::KeyConfig,
     key_assign::{MultiKey, SingleKey, ToStringKey},
 };
 use bevy::{app::AppExit, prelude::*};
@@ -13,10 +14,9 @@ use bevy_egui::{
 };
 use enum_iterator::all;
 use std::{path::PathBuf, time::SystemTime};
-use tgbr_core::Model;
 
-pub const MENU_WIDTH: usize = 1024;
-pub const MENU_HEIGHT: usize = 576;
+pub const MENU_WIDTH: usize = 1280;
+pub const MENU_HEIGHT: usize = 720;
 
 pub struct MenuPlugin;
 
@@ -76,9 +76,9 @@ fn menu_event_system(
         match event {
             MenuEvent::OpenRomFile(path) => {
                 info!("Opening file: {:?}", path);
-                match GameBoyState::new(&path, &config) {
-                    Ok(gb) => {
-                        commands.insert_resource(gb);
+                match Emulator::try_new(&path, &config) {
+                    Ok(emulator) => {
+                        commands.insert_resource(emulator);
                         persistent_state.add_recent(&path);
                         app_state.set(AppState::Running).unwrap();
                     }
@@ -136,7 +136,7 @@ fn menu_system(
     mut egui_ctx: ResMut<EguiContext>,
     mut app_state: ResMut<State<AppState>>,
     mut menu_state: ResMut<MenuState>,
-    mut gb_state: Option<ResMut<GameBoyState>>,
+    mut emulator: Option<ResMut<Emulator>>,
     mut exit: EventWriter<AppExit>,
     mut menu_event: EventWriter<MenuEvent>,
     mut message_event: EventWriter<ShowMessage>,
@@ -168,9 +168,9 @@ fn menu_system(
             ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
                 ui.selectable_value(tab, MenuTab::File, "📁 File");
 
-                ui.add_enabled_ui(gb_state.is_some(), |ui| {
-                    ui.selectable_value(tab, MenuTab::State, "💾 State Save/Load");
-                });
+                // ui.add_enabled_ui(gb_state.is_some(), |ui| {
+                //     ui.selectable_value(tab, MenuTab::State, "💾 State Save/Load");
+                // });
 
                 ui.selectable_value(tab, MenuTab::GeneralSetting, "🔧 General Setting");
                 ui.selectable_value(tab, MenuTab::Graphics, "🖼 Graphics");
@@ -186,8 +186,8 @@ fn menu_system(
             MenuTab::File => {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-                        if let Some(gb_state) = &gb_state {
-                            ui.label(format!("Running `{}`", gb_state.rom_file.file_stem().unwrap().to_string_lossy()));
+                        if let Some(emulator) = &emulator {
+                            ui.label(format!("Running `{}`", emulator.game_name()));
                             if ui.button("Resume").clicked() {
                                 app_state.set(AppState::Running).unwrap();
                             }
@@ -221,337 +221,336 @@ fn menu_system(
             MenuTab::State => {
                 ui.heading("State Save / Load");
 
-                if let Some(gb_state) = gb_state.as_mut() {
-                    ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-                        ui.group(|ui| {
-                            ui.label("Slot");
+                // if let Some(gb_state) = gb_state.as_mut() {
+                //     ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                //         ui.group(|ui| {
+                //             ui.label("Slot");
 
-                            let grid = |ui:&mut egui::Ui| {
-                                for i in 0..10 {
-                                    ui.label(format!("{}", i));
+                //             let grid = |ui:&mut egui::Ui| {
+                //                 for i in 0..10 {
+                //                     ui.label(format!("{}", i));
 
-                                    let date = state_data_date(&gb_state.rom_file, i, config.state_dir()).unwrap();
+                //                     let date = state_data_date(&gb_state.rom_file, i, config.state_dir()).unwrap();
 
-                                    if ui.button( "Save").clicked() {
-                                        gb_state.save_state(i, config.as_ref()).unwrap();
-                                        message_event.send(ShowMessage(format!("State saved: #{}", i)));
-                                        app_state.set(AppState::Running).unwrap();
-                                    }
-                                    ui.add_enabled_ui(date.is_some(), |ui| {
-                                        if ui.button( "Load").clicked() {
-                                            match gb_state.load_state(i, config.as_ref()) {
-                                                Ok(_) => {
-                                                    message_event.send(ShowMessage(format!("State loaded: #{}", i)));
-                                                },
-                                                Err(e) => {
-                                                    message_event.send(ShowMessage("Failed to load state".to_string()));
-                                                    error!("Failed to load state: {}", e);
-                                                },
-                                            }
-                                            app_state.set(AppState::Running).unwrap();
-                                        }
-                                    });
+                //                     if ui.button( "Save").clicked() {
+                //                         gb_state.save_state(i, config.as_ref()).unwrap();
+                //                         message_event.send(ShowMessage(format!("State saved: #{}", i)));
+                //                         app_state.set(AppState::Running).unwrap();
+                //                     }
+                //                     ui.add_enabled_ui(date.is_some(), |ui| {
+                //                         if ui.button( "Load").clicked() {
+                //                             match gb_state.load_state(i, config.as_ref()) {
+                //                                 Ok(_) => {
+                //                                     message_event.send(ShowMessage(format!("State loaded: #{}", i)));
+                //                                 },
+                //                                 Err(e) => {
+                //                                     message_event.send(ShowMessage("Failed to load state".to_string()));
+                //                                     error!("Failed to load state: {}", e);
+                //                                 },
+                //                             }
+                //                             app_state.set(AppState::Running).unwrap();
+                //                         }
+                //                     });
 
-                                    ui.label(date.map_or_else(|| "---".to_string(), |date| date.format("%Y/%m/%d %H:%M:%S").to_string()));
-                                    ui.end_row();
-                                }
-                            };
+                //                     ui.label(date.map_or_else(|| "---".to_string(), |date| date.format("%Y/%m/%d %H:%M:%S").to_string()));
+                //                     ui.end_row();
+                //                 }
+                //             };
 
-                            egui::Grid::new("key_config")
-                            .num_columns(4)
-                            .spacing([40.0, 4.0])
-                            .striped(true)
-                            .show(ui, grid);
+                //             egui::Grid::new("key_config")
+                //             .num_columns(4)
+                //             .spacing([40.0, 4.0])
+                //             .striped(true)
+                //             .show(ui, grid);
 
-                        });
-                    });
-                }
-
+                //         });
+                //     });
+                // }
             }
             MenuTab::GeneralSetting => {
                 ui.heading("General Settings");
-                ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-                    ui.group(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.label("Model:");
-                            let mut val = config.model();
-                            ui.radio_value(&mut val, Model::Auto, "Auto");
-                            ui.radio_value(&mut val, Model::Dmg, "GameBoy");
-                            ui.radio_value(&mut val, Model::Cgb, "GameBoy Color");
-                            if config.model() != val {
-                                config.set_model(val);
-                            }
-                        });
+                // ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                //     ui.group(|ui| {
+                //         ui.horizontal(|ui| {
+                //             ui.label("Model:");
+                //             let mut val = config.model();
+                //             ui.radio_value(&mut val, Model::Auto, "Auto");
+                //             ui.radio_value(&mut val, Model::Dmg, "GameBoy");
+                //             ui.radio_value(&mut val, Model::Cgb, "GameBoy Color");
+                //             if config.model() != val {
+                //                 config.set_model(val);
+                //             }
+                //         });
 
-                        ui.horizontal(|ui| {
-                            ui.label("Frame skip on turbo:");
+                //         ui.horizontal(|ui| {
+                //             ui.label("Frame skip on turbo:");
 
-                            let mut frame_skip_on_turbo = config.frame_skip_on_turbo();
-                            if ui.add(egui::Slider::new(&mut frame_skip_on_turbo, 1..=10)).changed() {
-                                config.set_frame_skip_on_turbo(frame_skip_on_turbo);
-                            }
-                        });
+                //             let mut frame_skip_on_turbo = config.frame_skip_on_turbo();
+                //             if ui.add(egui::Slider::new(&mut frame_skip_on_turbo, 1..=10)).changed() {
+                //                 config.set_frame_skip_on_turbo(frame_skip_on_turbo);
+                //             }
+                //         });
 
-                        ui.separator();
+                //         ui.separator();
 
-                        let mut save_dir = Some(config.save_dir().to_owned());
-                        if file_field(ui, "Save file directory:", &mut save_dir, &[], false) {
-                            config.set_save_dir(save_dir.unwrap());
-                        }
-                        let mut state_dir = Some(config.state_dir().to_owned());
-                        if file_field(ui, "State save directory:", &mut state_dir, &[], false) {
-                            config.set_state_dir(state_dir.unwrap());
-                        }
+                //         let mut save_dir = Some(config.save_dir().to_owned());
+                //         if file_field(ui, "Save file directory:", &mut save_dir, &[], false) {
+                //             config.set_save_dir(save_dir.unwrap());
+                //         }
+                //         let mut state_dir = Some(config.state_dir().to_owned());
+                //         if file_field(ui, "State save directory:", &mut state_dir, &[], false) {
+                //             config.set_state_dir(state_dir.unwrap());
+                //         }
 
-                        ui.separator();
+                //         ui.separator();
 
-                        ui.label("Boot ROM:");
+                //         ui.label("Boot ROM:");
 
-                        let mut boot_rom = config.boot_rom().clone();
+                //         let mut boot_rom = config.boot_rom().clone();
 
-                        ui.horizontal(|ui| {
-                            ui.radio_value(&mut boot_rom,BootRom::None, "Do not use");
-                            ui.radio_value(&mut boot_rom, BootRom::Internal, "Use internal ROM");
-                            ui.radio_value(&mut boot_rom, BootRom::Custom, "Use specified ROM");
-                        });
+                //         ui.horizontal(|ui| {
+                //             ui.radio_value(&mut boot_rom,BootRom::None, "Do not use");
+                //             ui.radio_value(&mut boot_rom, BootRom::Internal, "Use internal ROM");
+                //             ui.radio_value(&mut boot_rom, BootRom::Custom, "Use specified ROM");
+                //         });
 
-                        if &boot_rom != config.boot_rom() {
-                            config.set_boot_rom(boot_rom.clone());
-                        }
+                //         if &boot_rom != config.boot_rom() {
+                //             config.set_boot_rom(boot_rom.clone());
+                //         }
 
-                        ui.add_enabled_ui(boot_rom == BootRom::Custom, |ui| {
-                            let mut path = config.custom_boot_roms().dmg.clone();
-                            if file_field(ui, "DMG boot ROM:", &mut path, &[("Boot ROM file", &["bin"])], true) {
-                                config.custom_boot_roms_mut().dmg = path;
-                                config.save().unwrap();
-                            }
-                            let mut path = config.custom_boot_roms().cgb.clone();
-                            if file_field(ui, "CGB boot ROM:", &mut path, &[("Boot ROM file", &["bin"])], true) {
-                                config.custom_boot_roms_mut().cgb = path;
-                                config.save().unwrap();
-                            }
-                        });
-                    });
-                });
+                //         ui.add_enabled_ui(boot_rom == BootRom::Custom, |ui| {
+                //             let mut path = config.custom_boot_roms().dmg.clone();
+                //             if file_field(ui, "DMG boot ROM:", &mut path, &[("Boot ROM file", &["bin"])], true) {
+                //                 config.custom_boot_roms_mut().dmg = path;
+                //                 config.save().unwrap();
+                //             }
+                //             let mut path = config.custom_boot_roms().cgb.clone();
+                //             if file_field(ui, "CGB boot ROM:", &mut path, &[("Boot ROM file", &["bin"])], true) {
+                //                 config.custom_boot_roms_mut().cgb = path;
+                //                 config.save().unwrap();
+                //             }
+                //         });
+                //     });
+                // });
             }
             MenuTab::Graphics => {
                 ui.heading("Gaphics Settings");
-                ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-                    ui.group(|ui| {
-                        let mut color_correction = config.color_correction();
-                        if ui
-                            .checkbox(&mut color_correction, "Color Correction")
-                            .changed()
-                        {
-                            config.set_color_correction(color_correction);
-                        }
+                // ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                //     ui.group(|ui| {
+                //         let mut color_correction = config.color_correction();
+                //         if ui
+                //             .checkbox(&mut color_correction, "Color Correction")
+                //             .changed()
+                //         {
+                //             config.set_color_correction(color_correction);
+                //         }
 
-                        let mut show_fps = config.show_fps();
-                        if ui.checkbox(&mut show_fps, "Display FPS").changed() {
-                            config.set_show_fps(show_fps);
-                        }
+                //         let mut show_fps = config.show_fps();
+                //         if ui.checkbox(&mut show_fps, "Display FPS").changed() {
+                //             config.set_show_fps(show_fps);
+                //         }
 
-                        let mut fullscreen = fullscreen_state.0;
-                        if ui.checkbox(&mut fullscreen, "FullScreen").changed() {
-                            window_control_event.send(WindowControlEvent::ToggleFullscreen);
-                        }
+                //         let mut fullscreen = fullscreen_state.0;
+                //         if ui.checkbox(&mut fullscreen, "FullScreen").changed() {
+                //             window_control_event.send(WindowControlEvent::ToggleFullscreen);
+                //         }
 
-                        ui.horizontal(|ui| {
-                            ui.label("Window Scale:");
+                //         ui.horizontal(|ui| {
+                //             ui.label("Window Scale:");
 
-                            let mut scale = config.scaling();
-                            if ui.add(egui::Slider::new(&mut scale, 1..=8)).changed() {
-                                window_control_event
-                                    .send(WindowControlEvent::ChangeScale(scale));
-                            }
-                        });
+                //             let mut scale = config.scaling();
+                //             if ui.add(egui::Slider::new(&mut scale, 1..=8)).changed() {
+                //                 window_control_event
+                //                     .send(WindowControlEvent::ChangeScale(scale));
+                //             }
+                //         });
 
-                        ui.label("GameBoy Palette:");
+                //         ui.label("GameBoy Palette:");
 
-                        let mut pal: PaletteSelect = config.palette().clone();
+                //         let mut pal: PaletteSelect = config.palette().clone();
 
-                        ui.horizontal(|ui| {
-                            egui::ComboBox::from_label("")
-                                .width(250.0)
-                                .selected_text(match pal {
-                                    PaletteSelect::Dmg => "GameBoy",
-                                    PaletteSelect::Pocket => "GameBoy Pocket",
-                                    PaletteSelect::Light => "GameBoy Light",
-                                    PaletteSelect::Grayscale => "Grayscale",
-                                    PaletteSelect::Custom(_) => "Custom",
-                                })
-                                .show_ui(ui, |ui| {
-                                    ui.selectable_value(&mut pal, PaletteSelect::Dmg, "GameBoy");
-                                    ui.selectable_value(&mut pal, PaletteSelect::Pocket, "GameBoy Pocket");
-                                    ui.selectable_value(&mut pal, PaletteSelect::Light, "GameBoy Light");
-                                    ui.selectable_value(&mut pal, PaletteSelect::Grayscale, "Grayscale");
-                                    if ui.add(SelectableLabel::new(matches!(pal, PaletteSelect::Custom(_)), "Custom")).clicked() {
-                                        pal = PaletteSelect::Custom(*pal.get_palette());
-                                    }
-                                }
-                            );
+                //         ui.horizontal(|ui| {
+                //             egui::ComboBox::from_label("")
+                //                 .width(250.0)
+                //                 .selected_text(match pal {
+                //                     PaletteSelect::Dmg => "GameBoy",
+                //                     PaletteSelect::Pocket => "GameBoy Pocket",
+                //                     PaletteSelect::Light => "GameBoy Light",
+                //                     PaletteSelect::Grayscale => "Grayscale",
+                //                     PaletteSelect::Custom(_) => "Custom",
+                //                 })
+                //                 .show_ui(ui, |ui| {
+                //                     ui.selectable_value(&mut pal, PaletteSelect::Dmg, "GameBoy");
+                //                     ui.selectable_value(&mut pal, PaletteSelect::Pocket, "GameBoy Pocket");
+                //                     ui.selectable_value(&mut pal, PaletteSelect::Light, "GameBoy Light");
+                //                     ui.selectable_value(&mut pal, PaletteSelect::Grayscale, "Grayscale");
+                //                     if ui.add(SelectableLabel::new(matches!(pal, PaletteSelect::Custom(_)), "Custom")).clicked() {
+                //                         pal = PaletteSelect::Custom(*pal.get_palette());
+                //                     }
+                //                 }
+                //             );
 
-                            let cols = *pal.get_palette();
+                //             let cols = *pal.get_palette();
 
-                            for i in (0..4).rev() {
-                                let mut col = [cols[i].r, cols[i].g, cols[i].b];
-                                ui.color_edit_button_srgb(&mut col).changed();
+                //             for i in (0..4).rev() {
+                //                 let mut col = [cols[i].r, cols[i].g, cols[i].b];
+                //                 ui.color_edit_button_srgb(&mut col).changed();
 
-                                if let PaletteSelect::Custom(r) = &mut pal {
-                                    r[i] = tgbr_core::Color::new(col[0], col[1], col[2]);
-                                }
-                            }
-                        });
+                //                 if let PaletteSelect::Custom(r) = &mut pal {
+                //                     r[i] = tgbr_core::Color::new(col[0], col[1], col[2]);
+                //                 }
+                //             }
+                //         });
 
-                        if &pal != config.palette() {
-                            if let Some(gb_state) = gb_state.as_mut() {
-                                gb_state.gb.set_dmg_palette(pal.get_palette());
-                            }
-                            config.set_palette(pal);
-                            *last_palette_changed = Some(SystemTime::now());
-                        }
-                    });
-                });
+                //         if &pal != config.palette() {
+                //             if let Some(gb_state) = gb_state.as_mut() {
+                //                 gb_state.gb.set_dmg_palette(pal.get_palette());
+                //             }
+                //             config.set_palette(pal);
+                //             *last_palette_changed = Some(SystemTime::now());
+                //         }
+                //     });
+                // });
             }
             MenuTab::Controller => {
                 ui.heading("Controller Settings");
 
-                ui.horizontal(|ui| {
-                    let mut resp = ui.selectable_value(controller_tab, ControllerTab::Keyboard, "Keyboard");
-                    resp |= ui.selectable_value(controller_tab, ControllerTab::Gamepad, "Gamepad");
-                    if resp.clicked() {
-                        *controller_button_ix = 0;
-                    }
-                });
+                // ui.horizontal(|ui| {
+                //     let mut resp = ui.selectable_value(controller_tab, ControllerTab::Keyboard, "Keyboard");
+                //     resp |= ui.selectable_value(controller_tab, ControllerTab::Gamepad, "Gamepad");
+                //     if resp.clicked() {
+                //         *controller_button_ix = 0;
+                //     }
+                // });
 
-                ui.group(|ui| {
-                    egui::Grid::new("key_config")
-                        .num_columns(2)
-                        .spacing([40.0, 4.0])
-                        .striped(true)
-                        .show(ui, |ui| {
-                            ui.label("Button");
-                            ui.label("Assignment");
-                            ui.end_row();
+                // ui.group(|ui| {
+                //     egui::Grid::new("key_config")
+                //         .num_columns(2)
+                //         .spacing([40.0, 4.0])
+                //         .striped(true)
+                //         .show(ui, |ui| {
+                //             ui.label("Button");
+                //             ui.label("Assignment");
+                //             ui.end_row();
 
-                            ui.separator();
-                            ui.separator();
-                            ui.end_row();
+                //             ui.separator();
+                //             ui.separator();
+                //             ui.end_row();
 
-                            let mut changed: Option<usize> = None;
+                //             let mut changed: Option<usize> = None;
 
-                            match *controller_tab {
-                                ControllerTab::Keyboard => {
-                                    macro_rules! button {
-                                        {$ix:literal, $button:ident, $label:literal} => {
-                                            ui.label($label);
-                                            let assign = config.key_config().$button.extract_keycode()
-                                                .map_or_else(|| "".to_string(), |k| format!("{k:?}"));
+                //             match *controller_tab {
+                //                 ControllerTab::Keyboard => {
+                //                     macro_rules! button {
+                //                         {$ix:literal, $button:ident, $label:literal} => {
+                //                             ui.label($label);
+                //                             let assign = config.key_config().$button.extract_keycode()
+                //                                 .map_or_else(|| "".to_string(), |k| format!("{k:?}"));
 
-                                            ui.selectable_value(controller_button_ix, $ix, assign)
-                                                .on_hover_text("Click and type the key you want to assign");
+                //                             ui.selectable_value(controller_button_ix, $ix, assign)
+                //                                 .on_hover_text("Click and type the key you want to assign");
 
-                                            if *controller_button_ix == $ix {
-                                                if let Some(kc) = key_code_input.get_just_pressed().nth(0) {
-                                                    config.key_config_mut().$button.insert_keycode(*kc);
-                                                    config.save().unwrap();
-                                                    changed = Some($ix);
-                                                }
-                                            }
+                //                             if *controller_button_ix == $ix {
+                //                                 if let Some(kc) = key_code_input.get_just_pressed().nth(0) {
+                //                                     config.key_config_mut().$button.insert_keycode(*kc);
+                //                                     config.save().unwrap();
+                //                                     changed = Some($ix);
+                //                                 }
+                //                             }
 
-                                            ui.end_row();
-                                        }
-                                    }
+                //                             ui.end_row();
+                //                         }
+                //                     }
 
-                                    button!(1, up, "⏶");
-                                    button!(2, down, "⏷");
-                                    button!(3, left, "⏴");
-                                    button!(4, right, "⏵");
-                                    button!(5, a, "A");
-                                    button!(6, b, "B");
-                                    button!(7, start, "start");
-                                    button!(8, select, "select");
-                                }
+                //                     button!(1, up, "⏶");
+                //                     button!(2, down, "⏷");
+                //                     button!(3, left, "⏴");
+                //                     button!(4, right, "⏵");
+                //                     button!(5, a, "A");
+                //                     button!(6, b, "B");
+                //                     button!(7, start, "start");
+                //                     button!(8, select, "select");
+                //                 }
 
-                                ControllerTab::Gamepad => {
-                                    macro_rules! button {
-                                        {$ix:literal, $button:ident, $label:literal} => {
-                                            ui.label($label);
-                                            let assign = config.key_config().$button.extract_gamepad()
-                                                .map_or_else(|| "".to_string(), |k| ToStringKey(k).to_string());
+                //                 ControllerTab::Gamepad => {
+                //                     macro_rules! button {
+                //                         {$ix:literal, $button:ident, $label:literal} => {
+                //                             ui.label($label);
+                //                             let assign = config.key_config().$button.extract_gamepad()
+                //                                 .map_or_else(|| "".to_string(), |k| ToStringKey(k).to_string());
 
-                                            ui.selectable_value(controller_button_ix, $ix, assign)
-                                                .on_hover_text("Click and press the button you want to assign");
+                //                             ui.selectable_value(controller_button_ix, $ix, assign)
+                //                                 .on_hover_text("Click and press the button you want to assign");
 
-                                            if *controller_button_ix == $ix {
-                                                if let Some(button) = gamepad_button_input.get_just_pressed().nth(0) {
-                                                    config.key_config_mut().$button.insert_gamepad(*button);
-                                                    config.save().unwrap();
-                                                    changed = Some($ix);
-                                                }
-                                            }
+                //                             if *controller_button_ix == $ix {
+                //                                 if let Some(button) = gamepad_button_input.get_just_pressed().nth(0) {
+                //                                     config.key_config_mut().$button.insert_gamepad(*button);
+                //                                     config.save().unwrap();
+                //                                     changed = Some($ix);
+                //                                 }
+                //                             }
 
-                                            ui.end_row();
-                                        }
-                                    }
+                //                             ui.end_row();
+                //                         }
+                //                     }
 
-                                    button!(1, up, "⏶");
-                                    button!(2, down, "⏷");
-                                    button!(3, left, "⏴");
-                                    button!(4, right, "⏵");
-                                    button!(5, a, "A");
-                                    button!(6, b, "B");
-                                    button!(7, start, "start");
-                                    button!(8, select, "select");
-                                }
-                            }
+                //                     button!(1, up, "⏶");
+                //                     button!(2, down, "⏷");
+                //                     button!(3, left, "⏴");
+                //                     button!(4, right, "⏵");
+                //                     button!(5, a, "A");
+                //                     button!(6, b, "B");
+                //                     button!(7, start, "start");
+                //                     button!(8, select, "select");
+                //                 }
+                //             }
 
-                            if let Some(ix) = changed {
-                                *controller_button_ix = ix + 1;
-                            }
+                //             if let Some(ix) = changed {
+                //                 *controller_button_ix = ix + 1;
+                //             }
 
-                        });
-                });
+                //         });
+                // });
 
-                if ui.button("Reset to default").clicked() {
-                    let key_config = KeyConfig::default();
-                    match *controller_tab {
-                        ControllerTab::Keyboard => {
-                            macro_rules! button {
-                                {$key:ident} => {
-                                    let kc = key_config.$key.extract_keycode().unwrap();
-                                    config.key_config_mut().$key.insert_keycode(kc);
-                                }
-                            }
-                            button!(up);
-                            button!(down);
-                            button!(left);
-                            button!(right);
-                            button!(a);
-                            button!(b);
-                            button!(start);
-                            button!(select);
-                        }
-                        ControllerTab::Gamepad => {
-                            macro_rules! button {
-                                {$key:ident} => {
-                                    let button = key_config.$key.extract_gamepad().unwrap();
-                                    config.key_config_mut().$key.insert_gamepad(button);
-                                }
-                            }
-                            button!(up);
-                            button!(down);
-                            button!(left);
-                            button!(right);
-                            button!(a);
-                            button!(b);
-                            button!(start);
-                            button!(select);
-                        },
-                    }
-                    *controller_button_ix = 0;
-                    config.save().unwrap();
-                }
+                // if ui.button("Reset to default").clicked() {
+                //     let key_config = KeyConfig::default();
+                //     match *controller_tab {
+                //         ControllerTab::Keyboard => {
+                //             macro_rules! button {
+                //                 {$key:ident} => {
+                //                     let kc = key_config.$key.extract_keycode().unwrap();
+                //                     config.key_config_mut().$key.insert_keycode(kc);
+                //                 }
+                //             }
+                //             button!(up);
+                //             button!(down);
+                //             button!(left);
+                //             button!(right);
+                //             button!(a);
+                //             button!(b);
+                //             button!(start);
+                //             button!(select);
+                //         }
+                //         ControllerTab::Gamepad => {
+                //             macro_rules! button {
+                //                 {$key:ident} => {
+                //                     let button = key_config.$key.extract_gamepad().unwrap();
+                //                     config.key_config_mut().$key.insert_gamepad(button);
+                //                 }
+                //             }
+                //             button!(up);
+                //             button!(down);
+                //             button!(left);
+                //             button!(right);
+                //             button!(a);
+                //             button!(b);
+                //             button!(start);
+                //             button!(select);
+                //         }
+                //     }
+                //     *controller_button_ix = 0;
+                //     config.save().unwrap();
+                // }
             }
             MenuTab::HotKey => {
                 ui.heading("HotKey Settings");
@@ -566,7 +565,7 @@ fn menu_system(
                     ui.end_row();
 
                     let mut ix = 1;
-                    let mut changed= false;
+                    let mut changed = false;
                     let mut hotkey_determined = false;
 
                     if *hotkey_select != 0 {
@@ -583,7 +582,9 @@ fn menu_system(
                                 *constructing_hotkey = Some(current_pushed);
                             }
                         } else {
-                            let released = constructing_hotkey.as_ref().unwrap()
+                            let released = constructing_hotkey
+                                .as_ref()
+                                .unwrap()
                                 .iter()
                                 .any(|k| !current_pushed.contains(k));
 
@@ -599,18 +600,17 @@ fn menu_system(
                         }
                     }
 
-
                     for hotkey in all::<HotKey>() {
                         ui.label(hotkey.to_string());
 
                         ui.horizontal(|ui| {
                             let key_assign = config.hotkeys_mut().key_assign_mut(hotkey).unwrap();
                             for i in 0..key_assign.0.len() {
-
                                 let key_str = if *hotkey_select == ix {
                                     if hotkey_determined {
                                         *hotkey_select = 0;
-                                        key_assign.0[i] = MultiKey(constructing_hotkey.clone().unwrap());
+                                        key_assign.0[i] =
+                                            MultiKey(constructing_hotkey.clone().unwrap());
                                         *constructing_hotkey = None;
                                         changed = true;
                                     }
@@ -624,9 +624,11 @@ fn menu_system(
                                     key_assign.0[i].to_string()
                                 };
 
-                                if ui.selectable_value(hotkey_select, ix, key_str)
+                                if ui
+                                    .selectable_value(hotkey_select, ix, key_str)
                                     .on_hover_text("Click to change\nRight click to remove")
-                                    .clicked_by(egui::PointerButton::Secondary) {
+                                    .clicked_by(egui::PointerButton::Secondary)
+                                {
                                     key_assign.0.remove(i);
                                     break;
                                 }
@@ -636,7 +638,9 @@ fn menu_system(
                             let key_str = if *hotkey_select == ix {
                                 if hotkey_determined {
                                     *hotkey_select = 0;
-                                    key_assign.0.push(MultiKey(constructing_hotkey.clone().unwrap()));
+                                    key_assign
+                                        .0
+                                        .push(MultiKey(constructing_hotkey.clone().unwrap()));
                                     *constructing_hotkey = None;
                                     changed = true;
                                 }
@@ -650,7 +654,8 @@ fn menu_system(
                                 "...".to_string()
                             };
 
-                            ui.selectable_value(hotkey_select, ix, key_str).on_hover_text("Add new key assignment");
+                            ui.selectable_value(hotkey_select, ix, key_str)
+                                .on_hover_text("Add new key assignment");
                             ix += 1;
                         });
 
@@ -669,7 +674,6 @@ fn menu_system(
                         .striped(true)
                         .show(ui, grid);
                 });
-
 
                 if ui.button("Reset to default").clicked() {
                     *config.hotkeys_mut() = HotKeys::default();

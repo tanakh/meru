@@ -3,8 +3,9 @@ use bevy_easings::*;
 use std::time::Duration;
 
 use crate::{
-    app::{AppState, GameBoyState, ScreenSprite},
+    app::{AppState, ScreenSprite},
     config,
+    core::Emulator,
     key_assign::InputState,
 };
 
@@ -42,7 +43,7 @@ struct Thumbnail(usize);
 
 fn enter_rewinding_system(
     mut commands: Commands,
-    gb_state: ResMut<GameBoyState>,
+    emulator: ResMut<Emulator>,
     mut images: ResMut<Assets<Image>>,
     mut screen_visibility: Query<&mut Visibility, With<ScreenSprite>>,
 ) {
@@ -50,10 +51,10 @@ fn enter_rewinding_system(
         visibility.is_visible = false;
     }
 
-    let state_num = gb_state.auto_saved_states.len();
+    let state_num = emulator.auto_saved_states.len();
     assert!(state_num > 0);
 
-    let preview_image = images.add(gb_state.auto_saved_states[state_num - 1].thumbnail.clone());
+    let preview_image = images.add(emulator.auto_saved_states[state_num - 1].thumbnail.clone());
 
     commands
         .spawn_bundle(SpriteBundle {
@@ -91,7 +92,7 @@ fn enter_rewinding_system(
     for i in 0..4 {
         if state_num > i {
             let thumbnail = images.add(
-                gb_state.auto_saved_states[state_num - 1 - i]
+                emulator.auto_saved_states[state_num - 1 - i]
                     .thumbnail
                     .clone(),
             );
@@ -136,7 +137,7 @@ fn exit_rewinding_system(
 #[allow(clippy::too_many_arguments)]
 fn rewinding_system(
     mut commands: Commands,
-    mut gb_state: ResMut<GameBoyState>,
+    mut emulator: ResMut<Emulator>,
     mut app_state: ResMut<State<AppState>>,
     mut rewinding_state: ResMut<RewindingState>,
     mut preview: Query<(&mut Handle<Image>, &Transform, Entity), With<Preview>>,
@@ -168,10 +169,10 @@ fn rewinding_system(
     }
 
     if let Some(load_pos) = &rewinding_state.load_pos {
-        while gb_state.auto_saved_states.len() > *load_pos + 1 {
-            gb_state.auto_saved_states.pop_back();
+        while emulator.auto_saved_states.len() > *load_pos + 1 {
+            emulator.auto_saved_states.pop_back();
         }
-        let state = gb_state.auto_saved_states.pop_back().unwrap();
+        let state = emulator.auto_saved_states.pop_back().unwrap();
 
         let mut preview = preview.single_mut();
         *preview.0 = images.add(state.thumbnail);
@@ -182,20 +183,25 @@ fn rewinding_system(
                 duration: Duration::from_millis(200),
             },
         ));
-        gb_state.gb.load_state(&state.data).unwrap();
+        emulator.load_state(&state.data).unwrap();
         rewinding_state.exit = true;
         return;
     }
 
-    let left = config.key_config().left.pressed(&input_state);
-    let right = config.key_config().right.pressed(&input_state);
+    // TODO
+
+    // let left = config.key_config().left.pressed(&input_state);
+    // let right = config.key_config().right.pressed(&input_state);
+
+    let left = false;
+    let right = false;
 
     if left || right {
         let mut do_move = false;
         if left && rewinding_state.pos > 0 {
             if rewinding_state.pos >= 4 {
                 let ix = rewinding_state.pos - 4;
-                let thumbnail = images.add(gb_state.auto_saved_states[ix].thumbnail.clone());
+                let thumbnail = images.add(emulator.auto_saved_states[ix].thumbnail.clone());
 
                 commands
                     .spawn_bundle(SpriteBundle {
@@ -210,10 +216,10 @@ fn rewinding_system(
             rewinding_state.pos -= 1;
             do_move = true;
         }
-        if right && rewinding_state.pos < gb_state.auto_saved_states.len() - 1 {
-            if rewinding_state.pos + 4 < gb_state.auto_saved_states.len() {
+        if right && rewinding_state.pos < emulator.auto_saved_states.len() - 1 {
+            if rewinding_state.pos + 4 < emulator.auto_saved_states.len() {
                 let ix = rewinding_state.pos + 4;
-                let thumbnail = images.add(gb_state.auto_saved_states[ix].thumbnail.clone());
+                let thumbnail = images.add(emulator.auto_saved_states[ix].thumbnail.clone());
 
                 commands
                     .spawn_bundle(SpriteBundle {
@@ -242,16 +248,18 @@ fn rewinding_system(
             }
 
             *preview.single_mut().0 = images.add(
-                gb_state.auto_saved_states[rewinding_state.pos]
+                emulator.auto_saved_states[rewinding_state.pos]
                     .thumbnail
                     .clone(),
             );
         }
     }
 
-    if config.key_config().a.just_pressed(&input_state) {
-        rewinding_state.load_pos = Some(rewinding_state.pos);
-    } else if config.key_config().b.just_pressed(&input_state) {
-        rewinding_state.load_pos = Some(gb_state.auto_saved_states.len() - 1);
-    }
+    // TODO:
+
+    // if config.key_config().a.just_pressed(&input_state) {
+    //     rewinding_state.load_pos = Some(rewinding_state.pos);
+    // } else if config.key_config().b.just_pressed(&input_state) {
+    //     rewinding_state.load_pos = Some(emulator.auto_saved_states.len() - 1);
+    // }
 }
