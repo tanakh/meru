@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use chrono::prelude::*;
 use log::info;
 use std::{
@@ -14,74 +14,76 @@ fn atomic_write_file(file: &Path, data: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn get_state_file_path(rom_file: &Path, slot: usize, state_dir: &Path) -> Result<PathBuf> {
-    let state_file = rom_file
-        .file_stem()
-        .ok_or_else(|| anyhow!("Invalid file name: {}", rom_file.display()))?;
-    let state_file = format!("{}-{slot}", state_file.to_string_lossy());
-
-    if !state_dir.exists() {
-        fs::create_dir_all(state_dir)?;
-    } else if !state_dir.is_dir() {
-        bail!("`{}` is not a directory", state_dir.display());
-    }
-
-    // with_extension() is not correct when filename contains '.'
-    // so just add extension to string
-    let state_file = format!("{state_file}.state");
-
-    Ok(state_dir.join(state_file))
-}
-
-pub fn get_backup_dir(core_abbrev: &str, save_dir: &Path) -> Result<PathBuf> {
+pub fn get_save_dir(core_abbrev: &str, save_dir: &Path) -> Result<PathBuf> {
     let dir = save_dir.join(core_abbrev);
     if !dir.exists() {
         fs::create_dir_all(&dir)?;
+    } else if !dir.is_dir() {
+        bail!("`{}` is not a directory", dir.display());
     }
     Ok(dir)
 }
 
-pub fn load_backup(core_abbrev: &str, name: &str, save_dir: &Path) -> Result<Option<Vec<u8>>> {
-    let save_file_path = get_backup_dir(core_abbrev, save_dir)?.join(format!("{name}.sav"));
+fn get_backup_file_path(core_abbrev: &str, name: &str, save_dir: &Path) -> Result<PathBuf> {
+    Ok(get_save_dir(core_abbrev, save_dir)?.join(format!("{name}.save")))
+}
 
-    Ok(if save_file_path.is_file() {
-        info!("Loading backup RAM: `{}`", save_file_path.display());
-        Some(std::fs::read(save_file_path)?)
+fn get_state_file_path(
+    core_abbrev: &str,
+    name: &str,
+    slot: usize,
+    save_dir: &Path,
+) -> Result<PathBuf> {
+    Ok(get_save_dir(core_abbrev, save_dir)?.join(format!("{name}-{slot}.state")))
+}
+
+pub fn load_backup(core_abbrev: &str, name: &str, save_dir: &Path) -> Result<Option<Vec<u8>>> {
+    let path = get_backup_file_path(core_abbrev, name, save_dir)?;
+
+    Ok(if path.is_file() {
+        info!("Loading backup RAM: `{}`", path.display());
+        Some(std::fs::read(path)?)
     } else {
         None
     })
 }
 
 pub fn save_backup(core_abbrev: &str, name: &str, ram: &[u8], save_dir: &Path) -> Result<()> {
-    let save_file_path = get_backup_dir(core_abbrev, save_dir)?.join(format!("{name}.sav"));
+    let path = get_backup_file_path(core_abbrev, name, save_dir)?;
 
-    if !save_file_path.exists() {
-        info!("Creating backup RAM file: `{}`", save_file_path.display());
+    if !path.exists() {
+        info!("Creating backup RAM file: `{}`", path.display());
     } else {
-        info!(
-            "Overwriting backup RAM file: `{}`",
-            save_file_path.display()
-        );
+        info!("Overwriting backup RAM file: `{}`", path.display());
     }
-    atomic_write_file(&save_file_path, ram)
+    atomic_write_file(&path, ram)
 }
 
-pub fn save_state_data(rom_file: &Path, slot: usize, data: &[u8], state_dir: &Path) -> Result<()> {
-    atomic_write_file(&get_state_file_path(rom_file, slot, state_dir)?, data)?;
-    Ok(())
+pub fn save_state(
+    core_abbrev: &str,
+    name: &str,
+    slot: usize,
+    data: &[u8],
+    state_dir: &Path,
+) -> Result<()> {
+    atomic_write_file(
+        &get_state_file_path(core_abbrev, name, slot, state_dir)?,
+        data,
+    )
 }
 
-pub fn load_state_data(rom_file: &Path, slot: usize, state_dir: &Path) -> Result<Vec<u8>> {
-    let ret = fs::read(get_state_file_path(rom_file, slot, state_dir)?)?;
+pub fn load_state(core_abbrev: &str, name: &str, slot: usize, state_dir: &Path) -> Result<Vec<u8>> {
+    let ret = fs::read(get_state_file_path(core_abbrev, name, slot, state_dir)?)?;
     Ok(ret)
 }
 
-pub fn state_data_date(
-    rom_file: &Path,
+pub fn state_date(
+    core_abbrev: &str,
+    name: &str,
     slot: usize,
     state_dir: &Path,
 ) -> Result<Option<DateTime<Local>>> {
-    let path = get_state_file_path(rom_file, slot, state_dir)?;
+    let path = get_state_file_path(core_abbrev, name, slot, state_dir)?;
     let metadata = fs::metadata(&path);
     if let Ok(metadata) = metadata {
         Ok(Some(metadata.modified()?.into()))

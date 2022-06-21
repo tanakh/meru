@@ -2,7 +2,6 @@ use crate::{
     app::{AppState, FullscreenState, ShowMessage, WindowControlEvent},
     config::{Config, PersistentState},
     core::Emulator,
-    file::state_data_date,
     hotkey::{HotKey, HotKeys},
     // input::KeyConfig,
     key_assign::{MultiKey, SingleKey, ToStringKey},

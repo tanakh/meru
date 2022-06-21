@@ -1,18 +1,10 @@
-use anyhow::{bail, Result};
-use bevy::{
-    prelude::*,
-    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
-};
+use anyhow::Result;
+use bevy::prelude::*;
 use log::log_enabled;
 use serde::{Deserialize, Serialize};
-use std::{
-    cmp::min,
-    fs::File,
-    io,
-    path::{Path, PathBuf},
-};
+use std::{cmp::min, path::PathBuf};
 
-use tgbr_core::{AudioBuffer, BootRoms, Color, GameBoy, Input as GBInput, Model, Pad, Rom};
+use tgbr_core::{BootRoms, Color, GameBoy, Model, Rom};
 
 use crate::{
     core::{CoreInfo, EmulatorCore, KeyConfig},
@@ -388,11 +380,6 @@ impl ColorCorrection for CorrectColor {
 // //     self.color_correction = color_correction;
 // //     self.save().unwrap();
 // // }
-
-fn extension_as_string(path: &Path) -> Option<String> {
-    path.extension()
-        .and_then(|e| e.to_str().map(|s| s.to_lowercase()))
-}
 
 fn print_rom_info(info: &[(&str, String)]) {
     use prettytable::{cell, format, row, Table};

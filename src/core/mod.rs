@@ -15,7 +15,7 @@ use std::{
 use crate::{
     app::{AppState, AudioStreamQueue, ScreenSprite, WindowControlEvent},
     config::Config,
-    file::{load_backup, save_backup},
+    file::{load_backup, load_state, save_backup, save_state},
     hotkey,
     key_assign::*,
     rewinding::AutoSavedState,
@@ -320,19 +320,25 @@ impl Emulator {
         }
     }
 
-    pub fn save_state_to_slot(&self, slot: usize) -> Result<()> {
-        // state
-        //     .save_state(ui_state.state_save_slot, config.as_ref())
-        //     .unwrap();
-        todo!()
+    pub fn save_state_to_slot(&self, slot: usize, config: &Config) -> Result<()> {
+        let data = self.core.save_state();
+        save_state(
+            self.core.core_info().abbrev,
+            &self.game_name,
+            slot,
+            &data,
+            config.state_dir(),
+        )
     }
 
-    pub fn load_state_from_slot(&mut self, slot: usize) -> Result<()> {
-        todo!()
-    }
-
-    pub fn load_state(&mut self, data: &[u8]) -> Result<()> {
-        self.core.load_state(data)
+    pub fn load_state_from_slot(&mut self, slot: usize, config: &Config) -> Result<()> {
+        let data = load_state(
+            self.core.core_info().abbrev,
+            &self.game_name,
+            slot,
+            config.state_dir(),
+        )?;
+        self.core.load_state(&data)
     }
 }
 
@@ -533,16 +539,3 @@ fn copy_frame_buffer(data: &mut [u8], frame_buffer: &FrameBuffer) {
         }
     }
 }
-
-// impl GameBoyState {
-
-//     pub fn save_state(&self, slot: usize, config: &config::Config) -> Result<()> {
-//         let data = self.gb.save_state();
-//         save_state_data(&self.rom_file, slot, &data, config.state_dir())
-//     }
-
-//     pub fn load_state(&mut self, slot: usize, config: &config::Config) -> Result<()> {
-//         let data = load_state_data(&self.rom_file, slot, config.state_dir())?;
-//         self.gb.load_state(&data)
-//     }
-// }

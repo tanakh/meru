@@ -183,7 +183,7 @@ fn rewinding_system(
                 duration: Duration::from_millis(200),
             },
         ));
-        emulator.load_state(&state.data).unwrap();
+        emulator.core.load_state(&state.data).unwrap();
         rewinding_state.exit = true;
         return;
     }
