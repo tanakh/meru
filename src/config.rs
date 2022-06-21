@@ -1,7 +1,8 @@
 use anyhow::{anyhow, Result};
+use bevy::prelude::*;
 use directories::ProjectDirs;
 use log::info;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -9,13 +10,33 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{
-    core::{EmulatorCore, KeyConfig},
-    hotkey::HotKeys,
-};
+use crate::{core::EmulatorCore, hotkey::HotKeys, key_assign::*};
 
 // const AUDIO_FREQUENCY: usize = 48000;
 // const AUDIO_BUFFER_SAMPLES: usize = 2048;
+
+#[derive(Serialize, Deserialize)]
+pub struct SystemKeyConfig {
+    pub up: KeyAssign,
+    pub down: KeyAssign,
+    pub left: KeyAssign,
+    pub right: KeyAssign,
+    pub ok: KeyAssign,
+    pub cancel: KeyAssign,
+}
+
+impl Default for SystemKeyConfig {
+    fn default() -> Self {
+        Self {
+            up: any!(keycode!(Up), pad_button!(0, DPadUp)),
+            down: any!(keycode!(Down), pad_button!(0, DPadDown)),
+            left: any!(keycode!(Left), pad_button!(0, DPadLeft)),
+            right: any!(keycode!(Right), pad_button!(0, DPadRight)),
+            ok: any!(keycode!(X), pad_button!(0, South)),
+            cancel: any!(keycode!(Z), pad_button!(0, West)),
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
@@ -26,6 +47,7 @@ pub struct Config {
     scaling: usize,
     auto_state_save_freq: usize,
     auto_state_save_limit: usize,
+    system_key_config: SystemKeyConfig,
     hotkeys: HotKeys,
 
     #[serde(default)]
@@ -57,6 +79,7 @@ impl Default for Config {
             scaling: 4,
             auto_state_save_freq: 60,
             auto_state_save_limit: 10 * 60,
+            system_key_config: SystemKeyConfig::default(),
             hotkeys: HotKeys::default(),
             core_configs: BTreeMap::new(),
         }
@@ -114,6 +137,10 @@ impl Config {
         self.save().unwrap();
     }
 
+    pub fn system_key_config(&self) -> &SystemKeyConfig {
+        &self.system_key_config
+    }
+
     pub fn hotkeys(&self) -> &HotKeys {
         &self.hotkeys
     }
@@ -149,7 +176,7 @@ impl Config {
 }
 
 fn project_dirs() -> Result<ProjectDirs> {
-    let ret = ProjectDirs::from("", "", "tgbr")
+    let ret = ProjectDirs::from("", "", "meru")
         .ok_or_else(|| anyhow!("Cannot find project directory"))?;
     Ok(ret)
 }

@@ -188,13 +188,8 @@ fn rewinding_system(
         return;
     }
 
-    // TODO
-
-    // let left = config.key_config().left.pressed(&input_state);
-    // let right = config.key_config().right.pressed(&input_state);
-
-    let left = false;
-    let right = false;
+    let left = config.system_key_config().left.pressed(&input_state);
+    let right = config.system_key_config().right.pressed(&input_state);
 
     if left || right {
         let mut do_move = false;
@@ -255,11 +250,9 @@ fn rewinding_system(
         }
     }
 
-    // TODO:
-
-    // if config.key_config().a.just_pressed(&input_state) {
-    //     rewinding_state.load_pos = Some(rewinding_state.pos);
-    // } else if config.key_config().b.just_pressed(&input_state) {
-    //     rewinding_state.load_pos = Some(emulator.auto_saved_states.len() - 1);
-    // }
+    if config.system_key_config().ok.just_pressed(&input_state) {
+        rewinding_state.load_pos = Some(rewinding_state.pos);
+    } else if config.system_key_config().cancel.just_pressed(&input_state) {
+        rewinding_state.load_pos = Some(emulator.auto_saved_states.len() - 1);
+    }
 }
