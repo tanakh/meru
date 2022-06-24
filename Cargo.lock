@@ -2467,13 +2467,11 @@ name = "meru"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64",
  "bevy",
  "bevy_easings",
  "bevy_egui",
  "bevy_tiled_camera",
  "chrono",
- "ciborium",
  "compress-tools",
  "cpal",
  "directories",
@@ -2482,12 +2480,10 @@ dependencies = [
  "log",
  "rfd",
  "serde",
- "serde-bytes-repr",
  "serde_json",
  "tempfile",
  "tgba-core",
  "tgbr-core",
- "toml",
  "winit",
  "winres",
 ]
@@ -3373,17 +3369,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61ea8d54c77f8315140a05f4c7237403bf38b72704d031543aa1d16abbf517d1"
 dependencies = [
  "serde_derive",
-]
-
-[[package]]
-name = "serde-bytes-repr"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9eb83481bce328081ced4404f986de002bf2e08865bec386734595ebf3b2c425"
-dependencies = [
- "base64",
- "hex",
- "serde",
 ]
 
 [[package]]

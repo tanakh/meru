@@ -8,34 +8,25 @@ tgbr-core = { path = "../tgbr/tgbr-core", version = "0.1.0" }
 tgba-core = { path = "../tgba/tgba-core" }
 
 anyhow = "1.0.58"
+bevy = { version = "0.7", features = ["serialize"] }
+bevy_easings = "0.7"
+bevy_egui = "0.14"
+bevy_tiled_camera = "0.3.1"
 chrono = "0.4.19"
-ciborium = "0.2.0"
 compress-tools = "0.12.2"
 cpal = "0.13.5"
 directories = "4.0.1"
 enum-iterator = "1.1.2"
 image = { version = "0.24.2", default-features = false, features = ["ico"] }
 log = "0.4.17"
+rfd = "0.9"
 serde = { version = "1.0.136", features = ["derive"] }
 serde_json = "1.0.81"
 tempfile = "3.3.0"
-
-bevy = { version = "0.7", features = ["serialize"] }
-bevy_easings = "0.7"
-bevy_egui = "0.14"
-bevy_tiled_camera = "0.3.1"
-rfd = "0.9"
 winit = "0.26.1"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
-
-[dev-dependencies]
-base64 = "0.13.0"
-serde = "1.0.136"
-serde-bytes-repr = "0.1.5"
-serde_json = "1.0.81"
-toml = "0.5.9"
 
 [package.metadata.vcpkg]
 git = "https://github.com/microsoft/vcpkg"
