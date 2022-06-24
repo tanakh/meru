@@ -25,7 +25,7 @@ pub fn get_save_dir(core_abbrev: &str, save_dir: &Path) -> Result<PathBuf> {
 }
 
 fn get_backup_file_path(core_abbrev: &str, name: &str, save_dir: &Path) -> Result<PathBuf> {
-    Ok(get_save_dir(core_abbrev, save_dir)?.join(format!("{name}.save")))
+    Ok(get_save_dir(core_abbrev, save_dir)?.join(format!("{name}.sav")))
 }
 
 fn get_state_file_path(

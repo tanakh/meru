@@ -1,38 +1,22 @@
 use anyhow::Result;
 use bevy::prelude::*;
-use log::log_enabled;
+use bevy_egui::egui::{self, SelectableLabel};
 use serde::{Deserialize, Serialize};
 use std::{cmp::min, path::PathBuf};
 
 use tgbr_core::{BootRoms, Color, GameBoy, Model, Rom};
 
 use crate::{
-    core::{CoreInfo, EmulatorCore, KeyConfig},
+    core::{ConfigUi, CoreInfo, EmulatorCore, KeyConfig},
     key_assign::*,
+    menu::file_field,
 };
 
-pub struct GameBoyCore {
-    gb: GameBoy,
-    config: GameBoyConfig,
-    frame_buffer: super::FrameBuffer,
-    audio_buffer: super::AudioBuffer,
-}
-
 const CORE_INFO: CoreInfo = CoreInfo {
-    system_name: "GameBoy (TGBR)",
+    system_name: "Game Boy (TGBR)",
     abbrev: "gb",
     file_extensions: &["gb", "gbc"],
 };
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct GameBoyConfig {
-    model: Model,
-    boot_rom: BootRom,
-    custom_boot_roms: CustomBootRoms,
-    palette: PaletteSelect,
-    color_correction: bool,
-    key_config: KeyConfig,
-}
 
 fn default_key_config() -> KeyConfig {
     #[rustfmt::skip]
@@ -52,6 +36,22 @@ fn default_key_config() -> KeyConfig {
     }
 }
 
+pub struct GameBoyCore {
+    gb: GameBoy,
+    config: GameBoyConfig,
+    frame_buffer: super::FrameBuffer,
+    audio_buffer: super::AudioBuffer,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct GameBoyConfig {
+    model: Model,
+    boot_rom: BootRom,
+    custom_boot_roms: CustomBootRoms,
+    palette: PaletteSelect,
+    color_correction: bool,
+}
+
 impl Default for GameBoyConfig {
     fn default() -> Self {
         Self {
@@ -60,8 +60,93 @@ impl Default for GameBoyConfig {
             custom_boot_roms: CustomBootRoms::default(),
             palette: PaletteSelect::Pocket,
             color_correction: true,
-            key_config: default_key_config(),
         }
+    }
+}
+
+impl ConfigUi for GameBoyConfig {
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label("Model:");
+            ui.radio_value(&mut self.model, Model::Auto, "Auto");
+            ui.radio_value(&mut self.model, Model::Dmg, "GameBoy");
+            ui.radio_value(&mut self.model, Model::Cgb, "GameBoy Color");
+        });
+
+        ui.label("Boot ROM:");
+        ui.horizontal(|ui| {
+            ui.radio_value(&mut self.boot_rom, BootRom::None, "Do not use");
+            ui.radio_value(&mut self.boot_rom, BootRom::Internal, "Use internal ROM");
+            ui.radio_value(&mut self.boot_rom, BootRom::Custom, "Use specified ROM");
+        });
+
+        ui.add_enabled_ui(self.boot_rom == BootRom::Custom, |ui| {
+            file_field(
+                ui,
+                "DMG boot ROM:",
+                &mut self.custom_boot_roms.dmg,
+                &[("Boot ROM file", &["*"])],
+                true,
+            );
+            file_field(
+                ui,
+                "CGB boot ROM:",
+                &mut self.custom_boot_roms.cgb,
+                &[("Boot ROM file", &["*"])],
+                true,
+            );
+        });
+
+        ui.label("Graphics:");
+        ui.checkbox(&mut self.color_correction, "Color Correction");
+
+        ui.label("GameBoy Palette:");
+
+        ui.horizontal(|ui| {
+            egui::ComboBox::from_label("")
+                .width(250.0)
+                .selected_text(match self.palette {
+                    PaletteSelect::Dmg => "GameBoy",
+                    PaletteSelect::Pocket => "GameBoy Pocket",
+                    PaletteSelect::Light => "GameBoy Light",
+                    PaletteSelect::Grayscale => "Grayscale",
+                    PaletteSelect::Custom(_) => "Custom",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.palette, PaletteSelect::Dmg, "GameBoy");
+                    ui.selectable_value(&mut self.palette, PaletteSelect::Pocket, "GameBoy Pocket");
+                    ui.selectable_value(&mut self.palette, PaletteSelect::Light, "GameBoy Light");
+                    ui.selectable_value(&mut self.palette, PaletteSelect::Grayscale, "Grayscale");
+                    if ui
+                        .add(SelectableLabel::new(
+                            matches!(self.palette, PaletteSelect::Custom(_)),
+                            "Custom",
+                        ))
+                        .clicked()
+                    {
+                        self.palette = PaletteSelect::Custom(*self.palette.get_palette());
+                    }
+                });
+
+            let cols = *self.palette.get_palette();
+
+            for i in (0..4).rev() {
+                let mut col = [cols[i].r, cols[i].g, cols[i].b];
+                ui.color_edit_button_srgb(&mut col).changed();
+
+                if let PaletteSelect::Custom(r) = &mut self.palette {
+                    r[i] = tgbr_core::Color::new(col[0], col[1], col[2]);
+                }
+            }
+        });
+
+        // if &pal != config.palette() {
+        //     if let Some(gb_state) = gb_state.as_mut() {
+        //         gb_state.gb.set_dmg_palette(pal.get_palette());
+        //     }
+        //     config.set_palette(pal);
+        //     *last_palette_changed = Some(SystemTime::now());
+        // }
     }
 }
 
@@ -190,9 +275,6 @@ impl EmulatorCore for GameBoyCore {
         Self: Sized,
     {
         let rom = Rom::from_bytes(data)?;
-        if log_enabled!(log::Level::Info) {
-            print_rom_info(&rom.info());
-        }
 
         let gb_config = tgbr_core::Config::default()
             .set_model(config.model)
@@ -240,30 +322,21 @@ impl EmulatorCore for GameBoyCore {
         &self.audio_buffer
     }
 
-    fn key_config(&self) -> &KeyConfig {
-        &self.config.key_config
+    fn default_key_config() -> KeyConfig {
+        default_key_config()
     }
 
     fn set_input(&mut self, input: &super::InputData) {
         let mut gb_input = tgbr_core::Input::default();
 
-        let f = |key: &str| -> bool {
-            input
-                .inputs
-                .iter()
-                .find_map(|r| (r.0 == key).then(|| r.1))
-                // .unwrap()
-                .unwrap_or(false)
-        };
-
-        gb_input.pad.up = f("up");
-        gb_input.pad.down = f("down");
-        gb_input.pad.left = f("left");
-        gb_input.pad.right = f("right");
-        gb_input.pad.a = f("a");
-        gb_input.pad.b = f("b");
-        gb_input.pad.start = f("start");
-        gb_input.pad.select = f("select");
+        gb_input.pad.up = input.get("up");
+        gb_input.pad.down = input.get("down");
+        gb_input.pad.left = input.get("left");
+        gb_input.pad.right = input.get("right");
+        gb_input.pad.a = input.get("a");
+        gb_input.pad.b = input.get("b");
+        gb_input.pad.start = input.get("start");
+        gb_input.pad.select = input.get("select");
 
         self.gb.set_input(&gb_input);
     }
@@ -328,70 +401,5 @@ impl ColorCorrection for CorrectColor {
             g: min(240, ((g * 24 + b * 8) / 32) as u8),
             b: min(240, ((r * 6 + g * 4 + b * 22) / 32) as u8),
         }
-    }
-}
-
-// impl Config {
-//     pub fn palette(&self) -> &PaletteSelect {
-//         &self.palette
-//     }
-
-//     pub fn set_palette(&mut self, palette: PaletteSelect) {
-//         self.palette = palette;
-//         // self.save().unwrap();
-//     }
-
-//     pub fn key_config(&self) -> &KeyConfig {
-//         &self.key_config
-//     }
-
-//     pub fn key_config_mut(&mut self) -> &mut KeyConfig {
-//         &mut self.key_config
-//     }
-
-//     pub fn model(&self) -> Model {
-//         self.model
-//     }
-
-//     pub fn set_model(&mut self, model: Model) {
-//         self.model = model;
-//         self.save().unwrap();
-//     }
-
-//     pub fn boot_rom(&self) -> &BootRom {
-//         &self.boot_rom
-//     }
-
-//     pub fn set_boot_rom(&mut self, boot_rom: BootRom) {
-//         self.boot_rom = boot_rom;
-//         self.save().unwrap();
-//     }
-
-//     pub fn custom_boot_roms(&self) -> &CustomBootRoms {
-//         &self.custom_boot_roms
-//     }
-
-//     pub fn custom_boot_roms_mut(&mut self) -> &mut CustomBootRoms {
-//         &mut self.custom_boot_roms
-//     }
-// }
-
-// // pub fn set_color_correction(&mut self, color_correction: bool) {
-// //     self.color_correction = color_correction;
-// //     self.save().unwrap();
-// // }
-
-fn print_rom_info(info: &[(&str, String)]) {
-    use prettytable::{cell, format, row, Table};
-
-    let mut table = Table::new();
-    for (k, v) in info {
-        table.add_row(row![k, v]);
-    }
-    table.set_titles(row!["ROM File Info"]);
-    table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
-
-    for line in table.to_string().lines() {
-        info!("{line}");
     }
 }

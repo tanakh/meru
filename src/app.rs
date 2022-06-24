@@ -11,18 +11,17 @@ use bevy_tiled_camera::TiledCameraPlugin;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::{
     collections::VecDeque,
-    path::PathBuf,
     sync::{Arc, Mutex},
 };
 
 use crate::{
     config::{self, load_config, load_persistent_state},
-    core::{self, AudioSample},
+    core::{self, AudioSample, Emulator},
     hotkey, menu,
     rewinding::{self},
 };
 
-pub fn main(rom_file: Option<PathBuf>) -> Result<()> {
+pub fn main() -> Result<()> {
     let config = load_config()?;
 
     let mut app = App::new();
@@ -80,7 +79,13 @@ pub fn main(rom_file: Option<PathBuf>) -> Result<()> {
 }
 
 #[derive(Component)]
-pub struct PixelFont;
+struct PixelFont;
+
+#[derive(Component)]
+pub struct TiledCamera {
+    pub width: usize,
+    pub height: usize,
+}
 
 fn setup(
     mut commands: Commands,
@@ -88,7 +93,12 @@ fn setup(
     mut egui_ctx: ResMut<EguiContext>,
 ) {
     use bevy_tiled_camera::*;
-    commands.spawn_bundle(TiledCameraBundle::new().with_target_resolution(1, [160, 144]));
+    commands
+        .spawn_bundle(TiledCameraBundle::new().with_target_resolution(1, [320, 240]))
+        .insert(TiledCamera {
+            width: 320,
+            height: 240,
+        });
 
     let ctx = egui_ctx.ctx_mut();
 
@@ -215,6 +225,7 @@ fn window_control_event(
     mut fullscreen_state: ResMut<FullscreenState>,
     mut config: ResMut<config::Config>,
     app_state: Res<State<AppState>>,
+    emulator: Option<Res<Emulator>>,
 ) {
     let running = app_state.current() == &AppState::Running;
 
@@ -231,19 +242,34 @@ fn window_control_event(
                 }
                 if running {
                     let window = windows.get_primary_mut().unwrap();
-                    restore_window(window, fullscreen_state.0, config.scaling());
+                    restore_window(
+                        emulator.as_deref().unwrap(),
+                        window,
+                        fullscreen_state.0,
+                        config.scaling(),
+                    );
                 }
             }
             WindowControlEvent::ChangeScale(scale) => {
                 config.set_scaling(*scale);
                 if running {
                     let window = windows.get_primary_mut().unwrap();
-                    restore_window(window, fullscreen_state.0, config.scaling());
+                    restore_window(
+                        emulator.as_deref().unwrap(),
+                        window,
+                        fullscreen_state.0,
+                        config.scaling(),
+                    );
                 }
             }
             WindowControlEvent::Restore => {
                 let window = windows.get_primary_mut().unwrap();
-                restore_window(window, fullscreen_state.0, config.scaling());
+                restore_window(
+                    emulator.as_deref().unwrap(),
+                    window,
+                    fullscreen_state.0,
+                    config.scaling(),
+                );
             }
         }
     }
@@ -272,9 +298,9 @@ fn process_double_click(
     }
 }
 
-fn restore_window(window: &mut Window, fullscreen: bool, scaling: usize) {
-    let width = 160;
-    let height = 144;
+fn restore_window(emulator: &Emulator, window: &mut Window, fullscreen: bool, scaling: usize) {
+    let width = emulator.core.frame_buffer().width;
+    let height = emulator.core.frame_buffer().height;
 
     if !fullscreen {
         let scale = scaling as f32;

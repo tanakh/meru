@@ -10,7 +10,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{core::EmulatorCore, hotkey::HotKeys, key_assign::*};
+use crate::{
+    core::{Emulator, EmulatorCore, KeyConfig},
+    hotkey::HotKeys,
+    key_assign::*,
+};
 
 // const AUDIO_FREQUENCY: usize = 48000;
 // const AUDIO_BUFFER_SAMPLES: usize = 2048;
@@ -45,13 +49,16 @@ pub struct Config {
     show_fps: bool,
     frame_skip_on_turbo: usize,
     scaling: usize,
-    auto_state_save_freq: usize,
-    auto_state_save_limit: usize,
+    pub auto_state_save_rate: usize,   // byte/s
+    pub auto_state_save_limit: usize,  // byte
+    pub minimum_auto_save_span: usize, // frames
     system_key_config: SystemKeyConfig,
     hotkeys: HotKeys,
 
     #[serde(default)]
     core_configs: BTreeMap<String, Value>,
+    #[serde(default)]
+    key_configs: BTreeMap<String, KeyConfig>,
 }
 
 impl Default for Config {
@@ -77,11 +84,13 @@ impl Default for Config {
             show_fps: false,
             frame_skip_on_turbo: 4,
             scaling: 4,
-            auto_state_save_freq: 60,
-            auto_state_save_limit: 10 * 60,
+            auto_state_save_rate: 128 * 1024,          // 128KB/s
+            auto_state_save_limit: 1024 * 1024 * 1024, // 1GB
+            minimum_auto_save_span: 60,
             system_key_config: SystemKeyConfig::default(),
             hotkeys: HotKeys::default(),
             core_configs: BTreeMap::new(),
+            key_configs: BTreeMap::new(),
         }
     }
 }
@@ -149,14 +158,6 @@ impl Config {
         &mut self.hotkeys
     }
 
-    pub fn auto_state_save_freq(&self) -> usize {
-        self.auto_state_save_freq
-    }
-
-    pub fn auto_state_save_limit(&self) -> usize {
-        self.auto_state_save_limit
-    }
-
     pub fn frame_skip_on_turbo(&self) -> usize {
         self.frame_skip_on_turbo
     }
@@ -167,11 +168,28 @@ impl Config {
     }
 
     pub fn core_config<T: EmulatorCore>(&self) -> T::Config {
-        if let Some(config) = self.core_configs.get(T::core_info().system_name) {
+        if let Some(config) = self.core_configs.get(T::core_info().abbrev) {
             serde_json::from_value(config.clone()).unwrap()
         } else {
             <T as EmulatorCore>::Config::default()
         }
+    }
+
+    pub fn set_core_config<T: EmulatorCore>(&mut self, config: T::Config) {
+        self.core_configs.insert(
+            T::core_info().abbrev.into(),
+            serde_json::to_value(config).unwrap(),
+        );
+    }
+
+    pub fn key_config(&mut self, abbrev: &str) -> &KeyConfig {
+        self.key_configs
+            .entry(abbrev.to_string())
+            .or_insert_with(|| Emulator::default_key_config(abbrev))
+    }
+
+    pub fn set_key_config(&mut self, abbrev: &str, key_config: KeyConfig) {
+        self.key_configs.insert(abbrev.to_string(), key_config);
     }
 }
 

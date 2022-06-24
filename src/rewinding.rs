@@ -14,6 +14,12 @@ pub struct AutoSavedState {
     pub data: Vec<u8>,
 }
 
+impl AutoSavedState {
+    pub fn size(&self) -> usize {
+        self.data.len() + self.thumbnail.data.len()
+    }
+}
+
 pub struct RewindingState {
     pos: usize,
     load_pos: Option<usize>,

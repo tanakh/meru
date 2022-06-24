@@ -1,19 +1,23 @@
 pub mod gb;
+pub mod gba;
 
 use anyhow::{anyhow, bail, Result};
 use bevy::{
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
+use bevy_egui::egui;
+use bevy_tiled_camera::TiledCameraBundle;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
     collections::VecDeque,
     fs::{self, File},
+    io::{Seek, SeekFrom},
     path::{Path, PathBuf},
 };
 
 use crate::{
-    app::{AppState, AudioStreamQueue, ScreenSprite, WindowControlEvent},
+    app::{AppState, AudioStreamQueue, ScreenSprite, TiledCamera, WindowControlEvent},
     config::Config,
     file::{load_backup, load_state, save_backup, save_state},
     hotkey,
@@ -39,6 +43,14 @@ impl FrameBuffer {
         self.width = width;
         self.height = height;
         self.buffer.resize(width * height, Pixel::default());
+    }
+
+    fn pixel(&self, x: usize, y: usize) -> &Pixel {
+        &self.buffer[y * self.width + x]
+    }
+
+    fn pixel_mut(&mut self, x: usize, y: usize) -> &mut Pixel {
+        &mut self.buffer[y * self.width + x]
     }
 }
 
@@ -72,6 +84,10 @@ impl AudioSample {
     }
 }
 
+pub trait ConfigUi {
+    fn ui(&mut self, ui: &mut egui::Ui);
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct KeyConfig {
     pub keys: Vec<(String, KeyAssign)>,
@@ -94,6 +110,15 @@ pub struct InputData {
     pub inputs: Vec<(String, bool)>,
 }
 
+impl InputData {
+    fn get(&self, key: &str) -> bool {
+        self.inputs
+            .iter()
+            .find_map(|(k, v)| (k == key).then(|| *v))
+            .unwrap()
+    }
+}
+
 pub struct CoreInfo {
     pub system_name: &'static str,
     pub abbrev: &'static str,
@@ -101,7 +126,7 @@ pub struct CoreInfo {
 }
 
 pub trait EmulatorCore {
-    type Config: Serialize + DeserializeOwned + Default;
+    type Config: ConfigUi + Serialize + DeserializeOwned + Default;
 
     fn core_info() -> &'static CoreInfo;
 
@@ -115,7 +140,7 @@ pub trait EmulatorCore {
     fn frame_buffer(&self) -> &FrameBuffer;
     fn audio_buffer(&self) -> &AudioBuffer;
 
-    fn key_config(&self) -> &KeyConfig;
+    fn default_key_config() -> KeyConfig;
     fn set_input(&mut self, input: &InputData);
 
     fn backup(&self) -> Option<Vec<u8>>;
@@ -132,8 +157,6 @@ pub trait EmulatorCoreWrap: Sync + Send {
 
     fn frame_buffer(&self) -> &FrameBuffer;
     fn audio_buffer(&self) -> &AudioBuffer;
-
-    fn key_config(&self) -> &KeyConfig;
     fn set_input(&mut self, input: &InputData);
 
     fn backup(&self) -> Option<Vec<u8>>;
@@ -159,9 +182,6 @@ impl<T: EmulatorCore + Sync + Send> EmulatorCoreWrap for T {
     fn audio_buffer(&self) -> &AudioBuffer {
         self.audio_buffer()
     }
-    fn key_config(&self) -> &KeyConfig {
-        self.key_config()
-    }
     fn set_input(&mut self, input: &InputData) {
         self.set_input(input);
     }
@@ -181,6 +201,9 @@ pub struct Emulator {
     pub game_name: String,
     pub auto_saved_states: VecDeque<AutoSavedState>,
     pub auto_state_save_limit: usize,
+    total_auto_saved_size: usize,
+    prev_auto_saved_frame: usize,
+    prev_backup_saved_frame: usize,
     save_dir: PathBuf,
     frames: usize,
 }
@@ -202,7 +225,7 @@ impl Drop for Emulator {
     }
 }
 
-const ARCHIVE_EXTENSIONS: &[&str] = &["zip", "7z", "rar"];
+pub const ARCHIVE_EXTENSIONS: &[&str] = &["zip", "7z", "rar"];
 
 fn is_archive_file(path: &Path) -> bool {
     path.extension().map_or(false, |ext| {
@@ -216,11 +239,11 @@ fn is_archive_file(path: &Path) -> bool {
 
 fn make_core_from_data<
     T: EmulatorCore + EmulatorCoreWrap + Sized + 'static,
-    F: FnOnce() -> Result<Vec<u8>>,
+    F: FnMut() -> Result<Vec<u8>>,
 >(
     name: &str,
     ext: &str,
-    data: F,
+    mut data: F,
     config: &Config,
 ) -> Result<Box<dyn EmulatorCoreWrap>> {
     let core_info = <T as EmulatorCore>::core_info();
@@ -236,7 +259,7 @@ fn make_core_from_data<
 
 fn try_make_emulator(
     path: &Path,
-    data: impl FnOnce() -> Result<Vec<u8>>,
+    mut data: impl FnMut() -> Result<Vec<u8>>,
     config: &Config,
 ) -> Result<Emulator> {
     let ext = path
@@ -251,12 +274,15 @@ fn try_make_emulator(
 
     macro_rules! try_make {
         ($core:path) => {
-            if let Ok(core) = make_core_from_data::<$core, _>(&name, &ext, data, config) {
+            if let Ok(core) = make_core_from_data::<$core, _>(&name, &ext, &mut data, config) {
                 return Ok(Emulator {
                     core,
                     game_name: name.to_string(),
                     auto_saved_states: VecDeque::new(),
                     auto_state_save_limit: 0,
+                    total_auto_saved_size: 0,
+                    prev_auto_saved_frame: 0,
+                    prev_backup_saved_frame: 0,
                     save_dir: config.save_dir().to_owned(),
                     frames: 0,
                 });
@@ -265,11 +291,57 @@ fn try_make_emulator(
     }
 
     try_make!(gb::GameBoyCore);
+    try_make!(gba::GameBoyAdvanceCore);
 
     bail!("No supported core for: {}", path.display())
 }
 
 impl Emulator {
+    pub fn core_infos() -> Vec<&'static CoreInfo> {
+        let mut ret = vec![];
+
+        macro_rules! add {
+            ($core:path) => {
+                ret.push(<$core as EmulatorCore>::core_info());
+            };
+        }
+
+        add!(gb::GameBoyCore);
+        add!(gba::GameBoyAdvanceCore);
+
+        ret
+    }
+
+    pub fn config_ui(ui: &mut egui::Ui, abbrev: &str, config: &mut Config) {
+        macro_rules! add {
+            ($core:path) => {
+                if <$core as EmulatorCore>::core_info().abbrev == abbrev {
+                    let mut core_config = config.core_config::<$core>();
+                    core_config.ui(ui);
+                    config.set_core_config::<$core>(core_config);
+                }
+            };
+        }
+
+        add!(gb::GameBoyCore);
+        add!(gba::GameBoyAdvanceCore);
+    }
+
+    pub fn default_key_config(abbrev: &str) -> KeyConfig {
+        macro_rules! add {
+            ($core:path) => {
+                if <$core as EmulatorCore>::core_info().abbrev == abbrev {
+                    return <$core as EmulatorCore>::default_key_config();
+                }
+            };
+        }
+
+        add!(gb::GameBoyCore);
+        add!(gba::GameBoyAdvanceCore);
+
+        panic!();
+    }
+
     pub fn try_new(path: &Path, config: &Config) -> Result<Self> {
         if is_archive_file(path) {
             let mut f = File::open(path)?;
@@ -281,6 +353,7 @@ impl Emulator {
                     Path::new(&path),
                     || {
                         let mut data = vec![];
+                        f.seek(SeekFrom::Start(0))?;
                         compress_tools::uncompress_archive_file(&mut f, &mut data, &path)?;
                         Ok(data)
                     },
@@ -308,6 +381,20 @@ impl Emulator {
         self.core.reset();
     }
 
+    pub fn save_backup(&mut self) -> Result<()> {
+        if let Some(ram) = self.core.backup() {
+            save_backup(
+                self.core.core_info().abbrev,
+                &self.game_name,
+                &ram,
+                &self.save_dir,
+            )?;
+        }
+
+        self.prev_backup_saved_frame = self.frames;
+        Ok(())
+    }
+
     pub fn push_auto_save(&mut self) {
         let saved_state = AutoSavedState {
             data: self.core.save_state(),
@@ -320,7 +407,7 @@ impl Emulator {
         }
     }
 
-    pub fn save_state_to_slot(&self, slot: usize, config: &Config) -> Result<()> {
+    pub fn save_state_slot(&self, slot: usize, config: &Config) -> Result<()> {
         let data = self.core.save_state();
         save_state(
             self.core.core_info().abbrev,
@@ -331,7 +418,7 @@ impl Emulator {
         )
     }
 
-    pub fn load_state_from_slot(&mut self, slot: usize, config: &Config) -> Result<()> {
+    pub fn load_state_slot(&mut self, slot: usize, config: &Config) -> Result<()> {
         let data = load_state(
             self.core.core_info().abbrev,
             &self.game_name,
@@ -399,17 +486,20 @@ impl Plugin for EmulatorPlugin {
 }
 
 pub fn emulator_input_system(
+    mut config: ResMut<Config>,
     emulator: Res<Emulator>,
     input_keycode: Res<Input<KeyCode>>,
     input_gamepad_button: Res<Input<GamepadButton>>,
     input_gamepad_axis: Res<Axis<GamepadAxis>>,
     mut input: ResMut<InputData>,
 ) {
-    *input = emulator.core.key_config().input(&InputState::new(
-        &input_keycode,
-        &input_gamepad_button,
-        &input_gamepad_axis,
-    ));
+    *input = config
+        .key_config(emulator.core.core_info().abbrev)
+        .input(&InputState::new(
+            &input_keycode,
+            &input_gamepad_button,
+            &input_gamepad_axis,
+        ));
 }
 
 struct GameScreen(pub Handle<Image>);
@@ -455,7 +545,9 @@ fn exit_emulator_system(mut commands: Commands, screen_entity: Query<Entity, Wit
 }
 
 fn emulator_system(
+    mut commands: Commands,
     screen: Res<GameScreen>,
+    camera: Query<(Entity, &TiledCamera), With<TiledCamera>>,
     config: Res<Config>,
     mut emulator: ResMut<Emulator>,
     mut images: ResMut<Assets<Image>>,
@@ -464,6 +556,24 @@ fn emulator_system(
     is_turbo: Res<hotkey::IsTurbo>,
 ) {
     emulator.core.set_input(&*input);
+
+    {
+        let camera = camera.single();
+        let fb = emulator.core.frame_buffer();
+        if (camera.1.width, camera.1.height) != (fb.width, fb.height) {
+            commands.entity(camera.0).despawn();
+
+            commands
+                .spawn_bundle(
+                    TiledCameraBundle::new()
+                        .with_target_resolution(1, [fb.width as u32, fb.height as u32]),
+                )
+                .insert(TiledCamera {
+                    width: fb.width,
+                    height: fb.height,
+                });
+        }
+    }
 
     let samples_per_frame = 48000 / 60;
 
@@ -483,19 +593,31 @@ fn emulator_system(
 
         let mut exec_frame = |queue: &mut VecDeque<AudioSample>| {
             emulator.core.exec_frame();
-            if emulator.frames % config.auto_state_save_freq() == 0 {
+            emulator.frames += 1;
+
+            // FIXME
+            let elapsed = emulator.frames as f64 / 60.0;
+            let need_more = emulator.total_auto_saved_size
+                < (elapsed * config.auto_state_save_rate as f64).floor() as usize;
+            let enough_span =
+                emulator.prev_auto_saved_frame + config.minimum_auto_save_span < emulator.frames;
+
+            if need_more && enough_span {
                 let saved_state = AutoSavedState {
                     data: emulator.core.save_state(),
                     thumbnail: frame_buffer_to_image(emulator.core.frame_buffer()),
                 };
 
+                let state_size = saved_state.size();
+                emulator.total_auto_saved_size += state_size;
+                emulator.prev_auto_saved_frame = emulator.frames;
+
                 emulator.auto_saved_states.push_back(saved_state);
-                if emulator.auto_saved_states.len() > config.auto_state_save_limit() {
+                if emulator.auto_saved_states.len() * state_size > config.auto_state_save_limit {
                     emulator.auto_saved_states.pop_front();
                 }
             }
             push_audio_queue(&mut *queue, emulator.core.audio_buffer());
-            emulator.frames += 1;
         };
 
         if queue.len() < samples_per_frame * 2 {
@@ -520,6 +642,10 @@ fn emulator_system(
         let image = images.get_mut(&screen.0).unwrap();
         copy_frame_buffer(&mut image.data, fb);
         emulator.frames += 1;
+    }
+
+    if emulator.prev_backup_saved_frame + 60 * 60 <= emulator.frames {
+        emulator.save_backup().unwrap();
     }
 }
 

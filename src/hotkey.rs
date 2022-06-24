@@ -160,7 +160,7 @@ fn process_hotkey(
             HotKey::StateSave => {
                 if let Some(emulator) = &emulator {
                     emulator
-                        .save_state_to_slot(ui_state.state_save_slot, config.as_ref())
+                        .save_state_slot(ui_state.state_save_slot, config.as_ref())
                         .unwrap();
                     message_event.send(ShowMessage(format!(
                         "State saved: #{}",
@@ -171,7 +171,7 @@ fn process_hotkey(
             HotKey::StateLoad => {
                 if let Some(emulator) = &mut emulator {
                     if let Err(e) =
-                        emulator.load_state_from_slot(ui_state.state_save_slot, config.as_ref())
+                        emulator.load_state_slot(ui_state.state_save_slot, config.as_ref())
                     {
                         message_event.send(ShowMessage("Failed to load state".to_string()));
                         error!("Failed to load state: {}", e);
