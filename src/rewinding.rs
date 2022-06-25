@@ -53,6 +53,9 @@ fn enter_rewinding_system(
     mut images: ResMut<Assets<Image>>,
     mut screen_visibility: Query<&mut Visibility, With<ScreenSprite>>,
 ) {
+    let screen_width = emulator.core.frame_buffer().width as f32;
+    let screen_height = emulator.core.frame_buffer().height as f32;
+
     for mut visibility in screen_visibility.iter_mut() {
         visibility.is_visible = false;
     }
@@ -66,7 +69,7 @@ fn enter_rewinding_system(
         .spawn_bundle(SpriteBundle {
             sprite: Sprite {
                 color: Color::GRAY,
-                custom_size: Some(Vec2::new(160.0, 144.0)),
+                custom_size: Some(Vec2::new(screen_width, screen_height)),
                 ..Default::default()
             },
             transform: Transform::from_xyz(0.0, 0.0, -0.01),
@@ -85,7 +88,7 @@ fn enter_rewinding_system(
                 ..Default::default()
             }
             .ease_to(
-                Transform::from_xyz(0.0, 72.0 - 144.0 / 3.0, 1.0)
+                Transform::from_xyz(0.0, screen_height / 6.0, 1.0)
                     .with_scale(Vec3::splat(2.0 / 3.0)),
                 EaseFunction::CubicInOut,
                 EasingType::Once {
@@ -105,8 +108,12 @@ fn enter_rewinding_system(
             commands
                 .spawn_bundle(SpriteBundle {
                     texture: thumbnail,
-                    transform: Transform::from_xyz(-(i as f32) * 40.0, -72.0 + 144.0 / 6.0, 0.0)
-                        .with_scale(Vec3::splat(1.0 / 4.5)),
+                    transform: Transform::from_xyz(
+                        -(i as f32) * screen_width / 4.0,
+                        -screen_height / 2.0 + screen_height / 6.0,
+                        0.0,
+                    )
+                    .with_scale(Vec3::splat(1.0 / 4.5)),
                     ..Default::default()
                 })
                 .insert(Thumbnail(i));
@@ -118,26 +125,6 @@ fn enter_rewinding_system(
         load_pos: None,
         exit: false,
     });
-}
-
-fn exit_rewinding_system(
-    mut commands: Commands,
-    bg_color: Query<Entity, With<BgColor>>,
-    preview: Query<Entity, With<Preview>>,
-    thumbnails: Query<Entity, With<Thumbnail>>,
-    mut screen_visibility: Query<&mut Visibility, With<ScreenSprite>>,
-) {
-    for mut visibility in screen_visibility.iter_mut() {
-        visibility.is_visible = true;
-    }
-
-    for entity in bg_color
-        .iter()
-        .chain(preview.iter())
-        .chain(thumbnails.iter())
-    {
-        commands.entity(entity).despawn();
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -155,13 +142,16 @@ fn rewinding_system(
     input_gamepad_axis: Res<Axis<GamepadAxis>>,
     easing: Query<&EasingComponent<Transform>>,
 ) {
+    let screen_width = emulator.core.frame_buffer().width as f32;
+    let screen_height = emulator.core.frame_buffer().height as f32;
+
     let input_state = InputState::new(&input_keycode, &input_gamepad_button, &input_gamepad_axis);
 
     // wait for animation
     if easing.iter().next().is_some() {
         // remove invisible thumbnails
         for (entity, transform) in thumbnails.iter() {
-            if transform.translation.x.abs() > 180.0 {
+            if transform.translation.x.abs() > screen_width {
                 commands.entity(entity).despawn();
                 // TODO: remove image from assets
             }
@@ -207,8 +197,12 @@ fn rewinding_system(
                 commands
                     .spawn_bundle(SpriteBundle {
                         texture: thumbnail,
-                        transform: Transform::from_xyz(-3.0 * 40.0, -72.0 + 144.0 / 6.0, 0.0)
-                            .with_scale(Vec3::splat(1.0 / 4.5)),
+                        transform: Transform::from_xyz(
+                            -3.0 * screen_width / 4.0,
+                            -screen_height / 2.0 + screen_height / 6.0,
+                            0.0,
+                        )
+                        .with_scale(Vec3::splat(1.0 / 4.5)),
                         ..Default::default()
                     })
                     .insert(Thumbnail(ix));
@@ -225,8 +219,12 @@ fn rewinding_system(
                 commands
                     .spawn_bundle(SpriteBundle {
                         texture: thumbnail,
-                        transform: Transform::from_xyz(3.0 * 40.0, -72.0 + 144.0 / 6.0, 0.0)
-                            .with_scale(Vec3::splat(1.0 / 4.5)),
+                        transform: Transform::from_xyz(
+                            3.0 * screen_width / 4.0,
+                            -screen_height / 2.0 + screen_height / 6.0,
+                            0.0,
+                        )
+                        .with_scale(Vec3::splat(1.0 / 4.5)),
                         ..Default::default()
                     })
                     .insert(Thumbnail(ix));
@@ -237,7 +235,7 @@ fn rewinding_system(
         }
 
         if do_move {
-            let dx = (if left { 1 } else { -1 } * 40) as f32;
+            let dx = if left { 1.0 } else { -1.0 } * screen_width / 4.0;
             for (entity, trans) in thumbnails.iter() {
                 commands.entity(entity).insert(trans.ease_to(
                     Transform::from_xyz(dx, 0.0, 0.0) * *trans,
@@ -260,5 +258,25 @@ fn rewinding_system(
         rewinding_state.load_pos = Some(rewinding_state.pos);
     } else if config.system_key_config().cancel.just_pressed(&input_state) {
         rewinding_state.load_pos = Some(emulator.auto_saved_states.len() - 1);
+    }
+}
+
+fn exit_rewinding_system(
+    mut commands: Commands,
+    bg_color: Query<Entity, With<BgColor>>,
+    preview: Query<Entity, With<Preview>>,
+    thumbnails: Query<Entity, With<Thumbnail>>,
+    mut screen_visibility: Query<&mut Visibility, With<ScreenSprite>>,
+) {
+    for mut visibility in screen_visibility.iter_mut() {
+        visibility.is_visible = true;
+    }
+
+    for entity in bg_color
+        .iter()
+        .chain(preview.iter())
+        .chain(thumbnails.iter())
+    {
+        commands.entity(entity).despawn();
     }
 }

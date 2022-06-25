@@ -200,7 +200,6 @@ pub struct Emulator {
     pub core: Box<dyn EmulatorCoreWrap>,
     pub game_name: String,
     pub auto_saved_states: VecDeque<AutoSavedState>,
-    pub auto_state_save_limit: usize,
     total_auto_saved_size: usize,
     prev_auto_saved_frame: usize,
     prev_backup_saved_frame: usize,
@@ -279,7 +278,6 @@ fn try_make_emulator(
                     core,
                     game_name: name.to_string(),
                     auto_saved_states: VecDeque::new(),
-                    auto_state_save_limit: 0,
                     total_auto_saved_size: 0,
                     prev_auto_saved_frame: 0,
                     prev_backup_saved_frame: 0,
@@ -400,11 +398,7 @@ impl Emulator {
             data: self.core.save_state(),
             thumbnail: frame_buffer_to_image(self.core.frame_buffer()),
         };
-
         self.auto_saved_states.push_back(saved_state);
-        if self.auto_saved_states.len() > self.auto_state_save_limit {
-            self.auto_saved_states.pop_front();
-        }
     }
 
     pub fn save_state_slot(&self, slot: usize, config: &Config) -> Result<()> {
