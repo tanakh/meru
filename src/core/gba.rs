@@ -60,6 +60,9 @@ impl Default for GameBoyAdvanceConfig {
 impl ConfigUi for GameBoyAdvanceConfig {
     fn ui(&mut self, ui: &mut egui::Ui) {
         file_field(ui, "BIOS:", &mut self.bios, &[("BIOS file", &["*"])], true);
+        if self.bios.is_none() {
+            ui.colored_label(egui::Color32::RED, "BIOS must be specified");
+        }
     }
 }
 
