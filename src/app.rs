@@ -61,14 +61,6 @@ pub fn main() -> Result<()> {
     .add_startup_stage("single-startup", SystemStage::single_threaded())
     .add_startup_system_to_stage("single-startup", set_window_icon);
 
-    // if let Some(rom_file) = rom_file {
-    //     let gb = GameBoyState::new(rom_file, &config)?;
-    //     app.insert_resource(gb);
-    //     app.add_state(AppState::Running);
-    // } else {
-    //     app.add_state(AppState::Menu);
-    // }
-
     app.add_state(AppState::Menu);
 
     app.insert_resource(config);
@@ -111,8 +103,9 @@ fn setup(
     ctx.set_style(style);
 
     let pixel_font =
-        Font::try_from_bytes(include_bytes!("../assets/fonts/PixelMplus12-Regular.ttf").to_vec())
+        Font::try_from_bytes(include_bytes!("../assets/fonts/x8y12pxTheStrongGamer.ttf").to_vec())
             .unwrap();
+
     commands
         .spawn()
         .insert(fonts.add(pixel_font))
@@ -333,12 +326,12 @@ fn setup_fps_system(mut commands: Commands, pixel_font: Query<&Handle<Font>, Wit
                 "",
                 TextStyle {
                     font: pixel_font.clone(),
-                    font_size: 24.0,
+                    font_size: 12.0,
                     color: Color::WHITE,
                 },
                 TextAlignment::default(),
             ),
-            transform: Transform::from_xyz(52.0, 72.0, 2.0).with_scale(Vec3::splat(0.5)),
+            transform: Transform::from_xyz(0.0, 0.0, 2.0),
             ..Default::default()
         })
         .insert(FpsText);
@@ -347,10 +340,10 @@ fn setup_fps_system(mut commands: Commands, pixel_font: Query<&Handle<Font>, Wit
         .spawn_bundle(SpriteBundle {
             sprite: Sprite {
                 color: Color::rgba(0.0, 0.0, 0.0, 0.75),
-                custom_size: Some(Vec2::new(30.0, 12.0)),
+                custom_size: Some(Vec2::new(42.0, 12.0)),
                 ..Default::default()
             },
-            transform: Transform::from_xyz(65.0, 66.0, 1.0),
+            transform: Transform::from_xyz(0.0, 0.0, 1.0),
             ..Default::default()
         })
         .insert(FpsTextBg);
@@ -371,13 +364,23 @@ fn fps_system(
     config: Res<config::Config>,
     diagnostics: ResMut<Diagnostics>,
     is_turbo: Res<hotkey::IsTurbo>,
+    emulator: Option<Res<Emulator>>,
     mut ps: ParamSet<(
-        Query<(&mut Text, &mut Visibility), With<FpsText>>,
-        Query<&mut Visibility, With<FpsTextBg>>,
+        Query<(&mut Text, &mut Visibility, &mut Transform), With<FpsText>>,
+        Query<(&mut Visibility, &mut Transform), With<FpsTextBg>>,
     )>,
 ) {
+    let emulator = if let Some(emulator) = emulator {
+        emulator
+    } else {
+        return;
+    };
+
+    let screen_width = emulator.core.frame_buffer().width;
+    let screen_height = emulator.core.frame_buffer().height;
+
     let mut p0 = ps.p0();
-    let (mut text, mut visibility) = p0.single_mut();
+    let (mut text, mut visibility, mut transform) = p0.single_mut();
     visibility.is_visible = config.show_fps();
     let fps_diag = diagnostics.get(FrameTimeDiagnosticsPlugin::FPS).unwrap();
     let fps = fps_diag.value().unwrap_or(0.0)
@@ -388,10 +391,20 @@ fn fps_system(
         };
     let fps = format!("{fps:5.02}");
     text.sections[0].value = fps.chars().take(5).collect();
+    *transform = Transform::from_xyz(
+        (screen_width / 2 - 40) as _,
+        (screen_height / 2 + 2) as _,
+        2.0,
+    );
 
     let mut p1 = ps.p1();
-    let mut visibility_bg = p1.single_mut();
-    visibility_bg.is_visible = config.show_fps();
+    let (mut visibility, mut transform) = p1.single_mut();
+    visibility.is_visible = config.show_fps();
+    *transform = Transform::from_xyz(
+        (screen_width / 2 - 21) as _,
+        (screen_height / 2 - 6) as _,
+        1.0,
+    );
 }
 
 struct MessagePlugin;
