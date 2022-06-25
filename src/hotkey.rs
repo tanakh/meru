@@ -207,8 +207,7 @@ fn process_hotkey(
             HotKey::Menu => {
                 if app_state.current() == &AppState::Running {
                     app_state.set(AppState::Menu).unwrap();
-                }
-                if app_state.current() == &AppState::Menu && emulator.is_some() {
+                } else if app_state.current() == &AppState::Menu && emulator.is_some() {
                     app_state.set(AppState::Running).unwrap();
                 }
             }

@@ -64,16 +64,16 @@ pub fn save_state(
     name: &str,
     slot: usize,
     data: &[u8],
-    state_dir: &Path,
+    save_dir: &Path,
 ) -> Result<()> {
     atomic_write_file(
-        &get_state_file_path(core_abbrev, name, slot, state_dir)?,
+        &get_state_file_path(core_abbrev, name, slot, save_dir)?,
         data,
     )
 }
 
-pub fn load_state(core_abbrev: &str, name: &str, slot: usize, state_dir: &Path) -> Result<Vec<u8>> {
-    let ret = fs::read(get_state_file_path(core_abbrev, name, slot, state_dir)?)?;
+pub fn load_state(core_abbrev: &str, name: &str, slot: usize, save_dir: &Path) -> Result<Vec<u8>> {
+    let ret = fs::read(get_state_file_path(core_abbrev, name, slot, save_dir)?)?;
     Ok(ret)
 }
 
@@ -81,9 +81,9 @@ pub fn state_date(
     core_abbrev: &str,
     name: &str,
     slot: usize,
-    state_dir: &Path,
+    save_dir: &Path,
 ) -> Result<Option<DateTime<Local>>> {
-    let path = get_state_file_path(core_abbrev, name, slot, state_dir)?;
+    let path = get_state_file_path(core_abbrev, name, slot, save_dir)?;
     let metadata = fs::metadata(&path);
     if let Ok(metadata) = metadata {
         Ok(Some(metadata.modified()?.into()))

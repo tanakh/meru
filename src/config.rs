@@ -44,8 +44,7 @@ impl Default for SystemKeyConfig {
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
-    save_dir: PathBuf,
-    state_dir: PathBuf,
+    pub save_dir: PathBuf,
     show_fps: bool,
     frame_skip_on_turbo: usize,
     scaling: usize,
@@ -80,7 +79,6 @@ impl Default for Config {
 
         Self {
             save_dir,
-            state_dir,
             show_fps: false,
             frame_skip_on_turbo: 4,
             scaling: 4,
@@ -134,15 +132,6 @@ impl Config {
 
     pub fn set_save_dir(&mut self, save_dir: PathBuf) {
         self.save_dir = save_dir;
-        self.save().unwrap();
-    }
-
-    pub fn state_dir(&self) -> &PathBuf {
-        &self.state_dir
-    }
-
-    pub fn set_state_dir(&mut self, state_dir: PathBuf) {
-        self.state_dir = state_dir;
         self.save().unwrap();
     }
 

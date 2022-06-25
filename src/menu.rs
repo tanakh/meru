@@ -422,10 +422,6 @@ fn tab_general_setting(ui: &mut egui::Ui, config: &mut ResMut<Config>) {
     if file_field(ui, "Save file directory:", &mut save_dir, &[], false) {
         config.set_save_dir(save_dir.unwrap());
     }
-    let mut state_dir = Some(config.state_dir().to_owned());
-    if file_field(ui, "State save directory:", &mut state_dir, &[], false) {
-        config.set_state_dir(state_dir.unwrap());
-    }
 
     ui.separator();
 

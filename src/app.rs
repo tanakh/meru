@@ -17,7 +17,8 @@ use std::{
 use crate::{
     config::{self, load_config, load_persistent_state},
     core::{self, AudioSample, Emulator},
-    hotkey, menu,
+    hotkey,
+    menu::{self, MENU_HEIGHT, MENU_WIDTH},
     rewinding::{self},
 };
 
@@ -183,7 +184,7 @@ fn setup_audio(world: &mut World) {
     world.insert_non_send_resource(output_stream);
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AppState {
     Menu,
     Running,
@@ -233,15 +234,15 @@ fn window_control_event(
                 } else {
                     window.set_mode(WindowMode::Windowed);
                 }
-                if running {
-                    let window = windows.get_primary_mut().unwrap();
-                    restore_window(
-                        emulator.as_deref().unwrap(),
-                        window,
-                        fullscreen_state.0,
-                        config.scaling(),
-                    );
-                }
+
+                let window = windows.get_primary_mut().unwrap();
+                restore_window(
+                    emulator.as_deref().unwrap(),
+                    app_state.current(),
+                    window,
+                    fullscreen_state.0,
+                    config.scaling(),
+                );
             }
             WindowControlEvent::ChangeScale(scale) => {
                 config.set_scaling(*scale);
@@ -249,6 +250,7 @@ fn window_control_event(
                     let window = windows.get_primary_mut().unwrap();
                     restore_window(
                         emulator.as_deref().unwrap(),
+                        app_state.current(),
                         window,
                         fullscreen_state.0,
                         config.scaling(),
@@ -259,6 +261,7 @@ fn window_control_event(
                 let window = windows.get_primary_mut().unwrap();
                 restore_window(
                     emulator.as_deref().unwrap(),
+                    app_state.current(),
                     window,
                     fullscreen_state.0,
                     config.scaling(),
@@ -291,13 +294,25 @@ fn process_double_click(
     }
 }
 
-fn restore_window(emulator: &Emulator, window: &mut Window, fullscreen: bool, scaling: usize) {
-    let width = emulator.core.frame_buffer().width;
-    let height = emulator.core.frame_buffer().height;
+fn restore_window(
+    emulator: &Emulator,
+    app_state: &AppState,
+    window: &mut Window,
+    fullscreen: bool,
+    scaling: usize,
+) {
+    let (width, height) = if matches!(app_state, AppState::Menu) {
+        (MENU_WIDTH as f32, MENU_HEIGHT as f32)
+    } else {
+        let scale = scaling as f32;
+        (
+            emulator.core.frame_buffer().width as f32 * scale,
+            emulator.core.frame_buffer().height as f32 * scale,
+        )
+    };
 
     if !fullscreen {
-        let scale = scaling as f32;
-        window.set_resolution(width as f32 * scale, height as f32 * scale);
+        window.set_resolution(width, height);
     }
 }
 

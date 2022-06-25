@@ -408,7 +408,7 @@ impl Emulator {
             &self.game_name,
             slot,
             &data,
-            config.state_dir(),
+            config.save_dir(),
         )
     }
 
@@ -417,7 +417,7 @@ impl Emulator {
             self.core.core_info().abbrev,
             &self.game_name,
             slot,
-            config.state_dir(),
+            config.save_dir(),
         )?;
         self.core.load_state(&data)
     }
