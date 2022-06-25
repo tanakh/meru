@@ -411,8 +411,8 @@ struct MessagePlugin;
 
 impl Plugin for MessagePlugin {
     fn build(&self, app: &mut App) {
-        app.add_system(message_event_system)
-            .add_system(message_update_system)
+        app.add_system(message_event_system.label("message_event"))
+            .add_system(message_update_system.after("message_event"))
             .add_event::<ShowMessage>();
     }
 }
@@ -427,10 +427,19 @@ struct MessageText {
 fn message_event_system(
     mut commands: Commands,
     time: Res<Time>,
+    emulator: Option<Res<Emulator>>,
     mut event: EventReader<ShowMessage>,
     pixel_font: Query<&Handle<Font>, With<PixelFont>>,
     mut messages: Query<(Entity, &Transform), With<MessageText>>,
 ) {
+    let emulator = if let Some(emulator) = emulator {
+        emulator
+    } else {
+        return;
+    };
+    let screen_width = emulator.core.frame_buffer().width as f32;
+    let screen_height = emulator.core.frame_buffer().height as f32;
+
     let pixel_font = pixel_font.single();
 
     for ShowMessage(msg) in event.iter() {
@@ -457,7 +466,11 @@ fn message_event_system(
                     },
                     TextAlignment::default(),
                 ),
-                transform: Transform::from_xyz(-80.0, -60.0, 2.0),
+                transform: Transform::from_xyz(
+                    -screen_width / 2.0 + 2.0,
+                    -screen_height / 2.0 + 20.0,
+                    2.0,
+                ),
                 ..Default::default()
             })
             .insert(MessageText {
@@ -467,10 +480,10 @@ fn message_event_system(
                 parent.spawn_bundle(SpriteBundle {
                     sprite: Sprite {
                         color: Color::rgba(0.0, 0.0, 0.0, 0.75),
-                        custom_size: Some(Vec2::new(160.0, 12.0)),
+                        custom_size: Some(Vec2::new(screen_width, 12.0)),
                         ..Default::default()
                     },
-                    transform: Transform::from_xyz(80.0, -6.0, -1.0),
+                    transform: Transform::from_xyz(screen_width / 2.0 - 2.0, -8.0, -1.0),
                     ..Default::default()
                 });
             });
