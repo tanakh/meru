@@ -103,7 +103,7 @@ fn setup(
     ctx.set_style(style);
 
     let pixel_font =
-        Font::try_from_bytes(include_bytes!("../assets/fonts/x8y12pxTheStrongGamer.ttf").to_vec())
+        Font::try_from_bytes(include_bytes!("../assets/fonts/x12y16pxMaruMonica.ttf").to_vec())
             .unwrap();
 
     commands
@@ -326,7 +326,7 @@ fn setup_fps_system(mut commands: Commands, pixel_font: Query<&Handle<Font>, Wit
                 "",
                 TextStyle {
                     font: pixel_font.clone(),
-                    font_size: 12.0,
+                    font_size: 16.0,
                     color: Color::WHITE,
                 },
                 TextAlignment::default(),
@@ -340,7 +340,7 @@ fn setup_fps_system(mut commands: Commands, pixel_font: Query<&Handle<Font>, Wit
         .spawn_bundle(SpriteBundle {
             sprite: Sprite {
                 color: Color::rgba(0.0, 0.0, 0.0, 0.75),
-                custom_size: Some(Vec2::new(42.0, 12.0)),
+                custom_size: Some(Vec2::new(32.0, 16.0)),
                 ..Default::default()
             },
             transform: Transform::from_xyz(0.0, 0.0, 1.0),
@@ -391,18 +391,14 @@ fn fps_system(
         };
     let fps = format!("{fps:5.02}");
     text.sections[0].value = fps.chars().take(5).collect();
-    *transform = Transform::from_xyz(
-        (screen_width / 2 - 40) as _,
-        (screen_height / 2 + 2) as _,
-        2.0,
-    );
+    *transform = Transform::from_xyz((screen_width / 2 - 30) as _, (screen_height / 2) as _, 2.0);
 
     let mut p1 = ps.p1();
     let (mut visibility, mut transform) = p1.single_mut();
     visibility.is_visible = config.show_fps();
     *transform = Transform::from_xyz(
-        (screen_width / 2 - 21) as _,
-        (screen_height / 2 - 6) as _,
+        (screen_width / 2 - 16) as _,
+        (screen_height / 2 - 8) as _,
         1.0,
     );
 }
@@ -447,7 +443,7 @@ fn message_event_system(
             use bevy_easings::*;
 
             commands.entity(entity).insert(trans.ease_to(
-                Transform::from_xyz(0.0, 15.0, 0.0) * *trans,
+                Transform::from_xyz(0.0, 20.0, 0.0) * *trans,
                 EaseFunction::CubicInOut,
                 EasingType::Once {
                     duration: std::time::Duration::from_millis(100),
@@ -461,7 +457,7 @@ fn message_event_system(
                     msg,
                     TextStyle {
                         font: pixel_font.clone(),
-                        font_size: 12.0,
+                        font_size: 16.0,
                         color: Color::WHITE,
                     },
                     TextAlignment::default(),
@@ -480,7 +476,7 @@ fn message_event_system(
                 parent.spawn_bundle(SpriteBundle {
                     sprite: Sprite {
                         color: Color::rgba(0.0, 0.0, 0.0, 0.75),
-                        custom_size: Some(Vec2::new(screen_width, 12.0)),
+                        custom_size: Some(Vec2::new(screen_width, 16.0)),
                         ..Default::default()
                     },
                     transform: Transform::from_xyz(screen_width / 2.0 - 2.0, -8.0, -1.0),
