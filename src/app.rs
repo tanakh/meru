@@ -235,14 +235,16 @@ fn window_control_event(
                     window.set_mode(WindowMode::Windowed);
                 }
 
-                let window = windows.get_primary_mut().unwrap();
-                restore_window(
-                    emulator.as_deref().unwrap(),
-                    app_state.current(),
-                    window,
-                    fullscreen_state.0,
-                    config.scaling(),
-                );
+                if let Some(emulator) = emulator.as_deref() {
+                    let window = windows.get_primary_mut().unwrap();
+                    restore_window(
+                        emulator,
+                        app_state.current(),
+                        window,
+                        fullscreen_state.0,
+                        config.scaling(),
+                    );
+                }
             }
             WindowControlEvent::ChangeScale(scale) => {
                 config.set_scaling(*scale);
