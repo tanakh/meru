@@ -13,6 +13,7 @@ use std::{
     collections::VecDeque,
     fs::{self, File},
     io::{Seek, SeekFrom},
+    marker::PhantomData,
     path::{Path, PathBuf},
 };
 
@@ -135,6 +136,8 @@ pub trait EmulatorCore {
         Self: Sized;
     fn game_info(&self) -> Vec<(String, String)>;
 
+    fn set_config(&mut self, config: &Self::Config);
+
     fn exec_frame(&mut self);
     fn reset(&mut self);
 
@@ -150,59 +153,151 @@ pub trait EmulatorCore {
     fn load_state(&mut self, data: &[u8]) -> Result<()>;
 }
 
-pub trait EmulatorCoreWrap: Sync + Send {
-    fn core_info(&self) -> &CoreInfo;
-    fn game_info(&self) -> Vec<(String, String)>;
+macro_rules! def_emulator_cores {
+    ($( $constr:ident($t:ty) ),* $(,)?) => {
+        pub enum EmulatorCores {
+            $(
+                $constr(PhantomData<$t>),
+            )*
+        }
 
-    fn exec_frame(&mut self);
-    fn reset(&mut self);
+        const EMULATOR_CORES: &[EmulatorCores] = &[
+            $(
+                EmulatorCores::$constr(PhantomData),
+            )*
+        ];
 
-    fn frame_buffer(&self) -> &FrameBuffer;
-    fn audio_buffer(&self) -> &AudioBuffer;
-    fn set_input(&mut self, input: &InputData);
+        macro_rules! dispatch_core {
+            ($enum:ident, $core:ident, $var:ident, $e:expr) => {
+                match $core {
+                    $(
+                        $enum::$constr($var) => $e,
+                    )*
+                }
+            };
+        }
 
-    fn backup(&self) -> Option<Vec<u8>>;
+        pub enum EmulatorEnum {
+            $(
+                $constr($t),
+            )*
+        }
 
-    fn save_state(&self) -> Vec<u8>;
-    fn load_state(&mut self, data: &[u8]) -> Result<()>;
+        $(
+            impl From<$t> for EmulatorEnum {
+                fn from(core: $t) -> Self {
+                    EmulatorEnum::$constr(core)
+                }
+            }
+        )*
+    };
 }
 
-impl<T: EmulatorCore + Sync + Send> EmulatorCoreWrap for T {
+def_emulator_cores!(
+    GameBoy(gb::GameBoyCore),
+    GameBoyAdvance(gba::GameBoyAdvanceCore),
+);
+
+impl EmulatorCores {
     fn core_info(&self) -> &CoreInfo {
-        T::core_info()
+        fn core_info<T: EmulatorCore>(_: &PhantomData<T>) -> &'static CoreInfo {
+            T::core_info()
+        }
+        dispatch_core!(EmulatorCores, self, core, core_info(core))
     }
-    fn game_info(&self) -> Vec<(String, String)> {
-        self.game_info()
+}
+
+fn make_core_from_data<T: EmulatorCore + Into<EmulatorEnum>, F: FnMut() -> Result<Vec<u8>>>(
+    _: &PhantomData<T>,
+    name: &str,
+    ext: &str,
+    mut data: F,
+    config: &Config,
+) -> Result<EmulatorEnum> {
+    let core_info = <T as EmulatorCore>::core_info();
+    if core_info.file_extensions.contains(&ext) {
+        let backup = load_backup(core_info.abbrev, name, &config.save_dir)?;
+        let data = data()?;
+        let core = T::try_from_file(&data, backup.as_deref(), &config.core_config::<T>())?;
+        Ok(core.into())
+    } else {
+        bail!("Unsupported file extension: {ext}");
+    }
+}
+
+impl EmulatorEnum {
+    pub fn try_new(
+        name: &str,
+        ext: &str,
+        mut data: impl FnMut() -> Result<Vec<u8>>,
+        config: &Config,
+    ) -> Result<Self> {
+        for core in EMULATOR_CORES {
+            if let Ok(ret) = dispatch_core!(
+                EmulatorCores,
+                core,
+                core,
+                make_core_from_data(core, name, ext, &mut data, config)
+            ) {
+                return Ok(ret);
+            }
+        }
+        bail!("Failed to load");
     }
 
-    fn exec_frame(&mut self) {
-        self.exec_frame();
+    pub fn core_info(&self) -> &CoreInfo {
+        fn core_info<T: EmulatorCore>(_: &T) -> &'static CoreInfo {
+            T::core_info()
+        }
+        dispatch_core!(EmulatorEnum, self, core, core_info(core))
     }
-    fn reset(&mut self) {
-        self.reset();
+
+    pub fn game_info(&self) -> Vec<(String, String)> {
+        dispatch_core!(EmulatorEnum, self, core, core.game_info())
     }
-    fn frame_buffer(&self) -> &FrameBuffer {
-        self.frame_buffer()
+
+    pub fn backup(&self) -> Option<Vec<u8>> {
+        dispatch_core!(EmulatorEnum, self, core, core.backup())
     }
-    fn audio_buffer(&self) -> &AudioBuffer {
-        self.audio_buffer()
+
+    pub fn set_config(&mut self, config: &Config) {
+        fn set_config<T: EmulatorCore>(core: &mut T, config: &Config) {
+            core.set_config(&config.core_config::<T>());
+        }
+        dispatch_core!(EmulatorEnum, self, core, set_config(core, config));
     }
-    fn set_input(&mut self, input: &InputData) {
-        self.set_input(input);
+
+    pub fn reset(&mut self) {
+        dispatch_core!(EmulatorEnum, self, core, core.reset());
     }
-    fn backup(&self) -> Option<Vec<u8>> {
-        self.backup()
+
+    pub fn exec_frame(&mut self) {
+        dispatch_core!(EmulatorEnum, self, core, core.exec_frame());
     }
-    fn save_state(&self) -> Vec<u8> {
-        self.save_state()
+
+    pub fn frame_buffer(&self) -> &FrameBuffer {
+        dispatch_core!(EmulatorEnum, self, core, core.frame_buffer())
     }
-    fn load_state(&mut self, data: &[u8]) -> Result<()> {
-        self.load_state(data)
+
+    pub fn audio_buffer(&self) -> &AudioBuffer {
+        dispatch_core!(EmulatorEnum, self, core, core.audio_buffer())
+    }
+
+    pub fn set_input(&mut self, input: &InputData) {
+        dispatch_core!(EmulatorEnum, self, core, core.set_input(input));
+    }
+
+    pub fn save_state(&self) -> Vec<u8> {
+        dispatch_core!(EmulatorEnum, self, core, core.save_state())
+    }
+
+    pub fn load_state(&mut self, data: &[u8]) -> Result<()> {
+        dispatch_core!(EmulatorEnum, self, core, core.load_state(data))
     }
 }
 
 pub struct Emulator {
-    pub core: Box<dyn EmulatorCoreWrap>,
+    pub core: EmulatorEnum,
     pub game_name: String,
     pub auto_saved_states: VecDeque<AutoSavedState>,
     total_auto_saved_size: usize,
@@ -241,26 +336,6 @@ fn is_archive_file(path: &Path) -> bool {
     })
 }
 
-fn make_core_from_data<
-    T: EmulatorCore + EmulatorCoreWrap + Sized + 'static,
-    F: FnMut() -> Result<Vec<u8>>,
->(
-    name: &str,
-    ext: &str,
-    mut data: F,
-    config: &Config,
-) -> Result<Box<dyn EmulatorCoreWrap>> {
-    let core_info = <T as EmulatorCore>::core_info();
-    if core_info.file_extensions.contains(&ext) {
-        let backup = load_backup(core_info.abbrev, name, &config.save_dir)?;
-        let data = data()?;
-        let core = T::try_from_file(&data, backup.as_deref(), &config.core_config::<T>())?;
-        Ok(Box::new(core))
-    } else {
-        bail!("Unsupported file extension: {ext}");
-    }
-}
-
 fn try_make_emulator(
     path: &Path,
     mut data: impl FnMut() -> Result<Vec<u8>>,
@@ -276,72 +351,52 @@ fn try_make_emulator(
         .ok_or_else(|| anyhow!("Invalid file name"))?
         .to_string_lossy();
 
-    macro_rules! try_make {
-        ($core:path) => {
-            if let Ok(core) = make_core_from_data::<$core, _>(&name, &ext, &mut data, config) {
-                return Ok(Emulator {
-                    core,
-                    game_name: name.to_string(),
-                    auto_saved_states: VecDeque::new(),
-                    total_auto_saved_size: 0,
-                    prev_auto_saved_frame: 0,
-                    prev_backup_saved_frame: 0,
-                    save_dir: config.save_dir.clone(),
-                    frames: 0,
-                });
-            }
-        };
-    }
+    let core = EmulatorEnum::try_new(&name, &ext, &mut data, config)?;
 
-    try_make!(gb::GameBoyCore);
-    try_make!(gba::GameBoyAdvanceCore);
+    Ok(Emulator {
+        core,
+        game_name: name.to_string(),
+        auto_saved_states: VecDeque::new(),
+        total_auto_saved_size: 0,
+        prev_auto_saved_frame: 0,
+        prev_backup_saved_frame: 0,
+        save_dir: config.save_dir.clone(),
+        frames: 0,
+    })
+}
 
-    bail!("No supported core for: {}", path.display())
+fn config_ui<T: EmulatorCore>(_: &PhantomData<T>, ui: &mut egui::Ui, config: &mut Config) {
+    let mut core_config = config.core_config::<T>();
+    core_config.ui(ui);
+    config.set_core_config::<T>(core_config);
 }
 
 impl Emulator {
     pub fn core_infos() -> Vec<&'static CoreInfo> {
         let mut ret = vec![];
-
-        macro_rules! add {
-            ($core:path) => {
-                ret.push(<$core as EmulatorCore>::core_info());
-            };
+        for core in EMULATOR_CORES.iter() {
+            ret.push(core.core_info());
         }
-
-        add!(gb::GameBoyCore);
-        add!(gba::GameBoyAdvanceCore);
-
         ret
     }
 
     pub fn config_ui(ui: &mut egui::Ui, abbrev: &str, config: &mut Config) {
-        macro_rules! add {
-            ($core:path) => {
-                if <$core as EmulatorCore>::core_info().abbrev == abbrev {
-                    let mut core_config = config.core_config::<$core>();
-                    core_config.ui(ui);
-                    config.set_core_config::<$core>(core_config);
-                }
-            };
+        for core in EMULATOR_CORES.iter() {
+            if core.core_info().abbrev == abbrev {
+                dispatch_core!(EmulatorCores, core, core, config_ui(core, ui, config));
+            }
         }
-
-        add!(gb::GameBoyCore);
-        add!(gba::GameBoyAdvanceCore);
     }
 
     pub fn default_key_config(abbrev: &str) -> KeyConfig {
-        macro_rules! add {
-            ($core:path) => {
-                if <$core as EmulatorCore>::core_info().abbrev == abbrev {
-                    return <$core as EmulatorCore>::default_key_config();
-                }
-            };
+        fn default_key_config<T: EmulatorCore>(_: &PhantomData<T>) -> KeyConfig {
+            T::default_key_config()
         }
-
-        add!(gb::GameBoyCore);
-        add!(gba::GameBoyAdvanceCore);
-
+        for core in EMULATOR_CORES.iter() {
+            if core.core_info().abbrev == abbrev {
+                return dispatch_core!(EmulatorCores, core, core, default_key_config(core));
+            }
+        }
         panic!();
     }
 

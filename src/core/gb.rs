@@ -139,14 +139,6 @@ impl ConfigUi for GameBoyConfig {
                 }
             }
         });
-
-        // if &pal != config.palette() {
-        //     if let Some(gb_state) = gb_state.as_mut() {
-        //         gb_state.gb.set_dmg_palette(pal.get_palette());
-        //     }
-        //     config.set_palette(pal);
-        //     *last_palette_changed = Some(SystemTime::now());
-        // }
     }
 }
 
@@ -300,6 +292,11 @@ impl EmulatorCore for GameBoyCore {
             .into_iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect()
+    }
+
+    fn set_config(&mut self, config: &Self::Config) {
+        self.config = config.clone();
+        self.gb.set_dmg_palette(config.palette.get_palette());
     }
 
     fn exec_frame(&mut self) {

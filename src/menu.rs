@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContext};
 use enum_iterator::all;
-use std::{path::PathBuf, time::SystemTime};
+use std::path::PathBuf;
 
 use crate::{
     app::{AppState, FullscreenState, ShowMessage, WindowControlEvent},
@@ -123,7 +123,7 @@ fn menu_system(
     mut egui_ctx: ResMut<EguiContext>,
     mut app_state: ResMut<State<AppState>>,
     mut menu_state: ResMut<MenuState>,
-    emulator: Option<ResMut<Emulator>>,
+    mut emulator: Option<ResMut<Emulator>>,
     mut menu_event: EventWriter<MenuEvent>,
     mut message_event: EventWriter<ShowMessage>,
     mut window_control_event: EventWriter<WindowControlEvent>,
@@ -202,10 +202,10 @@ fn menu_system(
                 );
             }
             MenuTab::State => {
-                if let Some(mut emulator) = emulator {
+                if let Some(emulator) = emulator.as_deref_mut() {
                     tab_state(
                         ui,
-                        emulator.as_mut(),
+                        emulator,
                         config.as_ref(),
                         app_state.as_mut(),
                         &mut message_event,
@@ -213,8 +213,8 @@ fn menu_system(
                 }
             }
             MenuTab::GameInfo => {
-                if let Some(emulator) = emulator {
-                    tab_game_info(ui, emulator.as_ref());
+                if let Some(emulator) = emulator.as_deref() {
+                    tab_game_info(ui, emulator);
                 }
             }
             MenuTab::GeneralSetting => {
@@ -294,6 +294,9 @@ fn menu_system(
     });
 
     if &old_config != config.as_ref() {
+        if let Some(emulator) = emulator.as_deref_mut() {
+            emulator.core.set_config(config.as_ref());
+        }
         config.save().unwrap();
     }
 }
