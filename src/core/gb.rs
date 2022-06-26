@@ -298,8 +298,8 @@ impl EmulatorCore for GameBoyCore {
         self.gb.set_dmg_palette(config.palette.get_palette());
     }
 
-    fn exec_frame(&mut self) {
-        self.gb.exec_frame();
+    fn exec_frame(&mut self, render_graphics: bool) {
+        self.gb.exec_frame(render_graphics);
 
         let cc = make_color_correction(self.gb.model().is_cgb() && self.config.color_correction);
         cc.convert_frame_buffer(&mut self.frame_buffer, self.gb.frame_buffer());

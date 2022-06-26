@@ -102,8 +102,8 @@ impl EmulatorCore for GameBoyAdvanceCore {
 
     fn set_config(&mut self, _config: &Self::Config) {}
 
-    fn exec_frame(&mut self) {
-        self.agb.exec_frame();
+    fn exec_frame(&mut self, render_graphics: bool) {
+        self.agb.exec_frame(render_graphics);
 
         let fb = self.agb.frame_buf();
         self.frame_buffer.resize(fb.width() as _, fb.height() as _);

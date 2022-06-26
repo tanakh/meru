@@ -1,4 +1,4 @@
-use bevy::{input::prelude::*, prelude::KeyCode};
+use bevy_input::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 

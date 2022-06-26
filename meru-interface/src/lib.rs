@@ -1,7 +1,6 @@
 pub mod key_assign;
 
 use anyhow::Result;
-use bevy_egui::egui;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::key_assign::{InputState, KeyAssign};
@@ -118,7 +117,7 @@ pub trait EmulatorCore {
 
     fn set_config(&mut self, config: &Self::Config);
 
-    fn exec_frame(&mut self);
+    fn exec_frame(&mut self, render_graphics: bool);
     fn reset(&mut self);
 
     fn frame_buffer(&self) -> &FrameBuffer;

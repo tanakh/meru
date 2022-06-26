@@ -146,8 +146,8 @@ impl EmulatorEnum {
         dispatch_enum!(EmulatorEnum, self, core, core.reset());
     }
 
-    pub fn exec_frame(&mut self) {
-        dispatch_enum!(EmulatorEnum, self, core, core.exec_frame());
+    pub fn exec_frame(&mut self, render_graphics: bool) {
+        dispatch_enum!(EmulatorEnum, self, core, core.exec_frame(render_graphics));
     }
 
     pub fn frame_buffer(&self) -> &FrameBuffer {
@@ -521,7 +521,7 @@ fn emulator_system(
         }
 
         let mut exec_frame = |queue: &mut VecDeque<AudioSample>| {
-            emulator.core.exec_frame();
+            emulator.core.exec_frame(true);
             emulator.frames += 1;
 
             // FIXME
@@ -560,8 +560,8 @@ fn emulator_system(
         let image = images.get_mut(&screen.0).unwrap();
         copy_frame_buffer(&mut image.data, fb);
     } else {
-        for _ in 0..config.frame_skip_on_turbo {
-            emulator.core.exec_frame();
+        for i in 0..config.frame_skip_on_turbo {
+            emulator.core.exec_frame(i == 0);
             if queue.len() < samples_per_frame * 2 {
                 push_audio_queue(&mut *queue, emulator.core.audio_buffer());
             }
