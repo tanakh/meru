@@ -9,6 +9,7 @@ use crate::{
     core::Emulator,
 };
 
+#[derive(Clone)]
 pub struct AutoSavedState {
     pub thumbnail: Image,
     pub data: Vec<u8>,
@@ -168,7 +169,7 @@ fn rewinding_system(
         while emulator.auto_saved_states.len() > *load_pos + 1 {
             emulator.auto_saved_states.pop_back();
         }
-        let state = emulator.auto_saved_states.pop_back().unwrap();
+        let state = emulator.auto_saved_states.back().unwrap().clone();
 
         let mut preview = preview.single_mut();
         *preview.0 = images.add(state.thumbnail);
