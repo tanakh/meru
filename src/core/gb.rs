@@ -294,6 +294,14 @@ impl EmulatorCore for GameBoyCore {
         })
     }
 
+    fn game_info(&self) -> Vec<(String, String)> {
+        self.gb
+            .info()
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
     fn exec_frame(&mut self) {
         self.gb.exec_frame();
 

@@ -133,6 +133,7 @@ pub trait EmulatorCore {
     fn try_from_file(data: &[u8], backup: Option<&[u8]>, config: &Self::Config) -> Result<Self>
     where
         Self: Sized;
+    fn game_info(&self) -> Vec<(String, String)>;
 
     fn exec_frame(&mut self);
     fn reset(&mut self);
@@ -151,6 +152,7 @@ pub trait EmulatorCore {
 
 pub trait EmulatorCoreWrap: Sync + Send {
     fn core_info(&self) -> &CoreInfo;
+    fn game_info(&self) -> Vec<(String, String)>;
 
     fn exec_frame(&mut self);
     fn reset(&mut self);
@@ -168,6 +170,9 @@ pub trait EmulatorCoreWrap: Sync + Send {
 impl<T: EmulatorCore + Sync + Send> EmulatorCoreWrap for T {
     fn core_info(&self) -> &CoreInfo {
         T::core_info()
+    }
+    fn game_info(&self) -> Vec<(String, String)> {
+        self.game_info()
     }
 
     fn exec_frame(&mut self) {

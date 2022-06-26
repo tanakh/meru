@@ -82,6 +82,7 @@ fn menu_event_system(
 enum MenuTab {
     File,
     State,
+    GameInfo,
     GeneralSetting,
     CoreSetting(String),
     ControllerSetting(String),
@@ -168,6 +169,10 @@ fn menu_system(
                         ui.selectable_value(tab, MenuTab::State, "💾 State Save/Load");
                     });
 
+                    ui.add_enabled_ui(emulator.is_some(), |ui| {
+                        ui.selectable_value(tab, MenuTab::GameInfo, "ℹ Game Info");
+                    });
+
                     ui.selectable_value(tab, MenuTab::GeneralSetting, "🔧 General Setting");
                     ui.selectable_value(tab, MenuTab::Graphics, "🖼 Graphics");
 
@@ -213,6 +218,11 @@ fn menu_system(
                         app_state.as_mut(),
                         &mut message_event,
                     );
+                }
+            }
+            MenuTab::GameInfo => {
+                if let Some(mut emulator) = emulator {
+                    tab_game_info(ui, emulator.as_ref());
                 }
             }
             MenuTab::GeneralSetting => {
@@ -401,6 +411,24 @@ fn tab_state(
                 .show(ui, grid);
         });
     });
+}
+
+fn tab_game_info(ui: &mut egui::Ui, emulator: &Emulator) {
+    let info = emulator.core.game_info();
+
+    ui.heading("Game Info");
+
+    egui::Grid::new("key_config")
+        .num_columns(2)
+        .spacing([40.0, 4.0])
+        .striped(true)
+        .show(ui, |ui| {
+            for (key, value) in info {
+                ui.label(key);
+                ui.label(value);
+                ui.end_row();
+            }
+        });
 }
 
 fn tab_general_setting(ui: &mut egui::Ui, config: &mut ResMut<Config>) {

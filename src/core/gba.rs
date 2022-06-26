@@ -105,6 +105,10 @@ impl EmulatorCore for GameBoyAdvanceCore {
         })
     }
 
+    fn game_info(&self) -> Vec<(String, String)> {
+        self.agb.info()
+    }
+
     fn exec_frame(&mut self) {
         self.agb.exec_frame();
 
