@@ -2,7 +2,7 @@ use bevy::{input::prelude::*, prelude::KeyCode};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
 pub struct KeyAssign(pub Vec<MultiKey>);
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

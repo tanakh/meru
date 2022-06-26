@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use enum_iterator::{all, Sequence};
 use serde::{Deserialize, Serialize};
-use std::{cmp::max, fmt::Display};
+use std::fmt::Display;
 
 use crate::{
     app::{AppState, ShowMessage, UiState, WindowControlEvent},
@@ -58,7 +58,7 @@ impl Display for HotKey {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct HotKeys(Vec<(HotKey, KeyAssign)>);
 
 impl Default for HotKeys {
@@ -129,12 +129,12 @@ fn check_hotkey(
     let input_state = InputState::new(&input_keycode, &input_gamepad_button, &input_gamepad_axis);
 
     for hotkey in all::<HotKey>() {
-        if config.hotkeys().just_pressed(hotkey, &input_state) {
+        if config.hotkeys.just_pressed(hotkey, &input_state) {
             writer.send(hotkey);
         }
     }
 
-    is_turbo.0 = config.hotkeys().pressed(
+    is_turbo.0 = config.hotkeys.pressed(
         HotKey::Turbo,
         &InputState::new(&input_keycode, &input_gamepad_button, &input_gamepad_axis),
     );
@@ -215,13 +215,11 @@ fn process_hotkey(
                 window_control_event.send(WindowControlEvent::ToggleFullscreen);
             }
             HotKey::ScaleUp => {
-                let cur = config.scaling();
-                config.set_scaling(cur + 1);
+                config.scaling += 1;
                 window_control_event.send(WindowControlEvent::Restore);
             }
             HotKey::ScaleDown => {
-                let cur = config.scaling();
-                config.set_scaling(max(1, cur - 1));
+                config.scaling = config.scaling.saturating_sub(1);
                 window_control_event.send(WindowControlEvent::Restore);
             }
 

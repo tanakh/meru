@@ -19,7 +19,7 @@ use crate::{
 // const AUDIO_FREQUENCY: usize = 48000;
 // const AUDIO_BUFFER_SAMPLES: usize = 2048;
 
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct SystemKeyConfig {
     pub up: KeyAssign,
     pub down: KeyAssign,
@@ -42,17 +42,17 @@ impl Default for SystemKeyConfig {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub save_dir: PathBuf,
-    show_fps: bool,
-    frame_skip_on_turbo: usize,
-    scaling: usize,
+    pub show_fps: bool,
+    pub frame_skip_on_turbo: usize,
+    pub scaling: usize,
     pub auto_state_save_rate: usize,   // byte/s
     pub auto_state_save_limit: usize,  // byte
     pub minimum_auto_save_span: usize, // frames
+    pub hotkeys: HotKeys,
     system_key_config: SystemKeyConfig,
-    hotkeys: HotKeys,
 
     #[serde(default)]
     core_configs: BTreeMap<String, Value>,
@@ -108,52 +108,8 @@ impl Config {
         Ok(())
     }
 
-    pub fn scaling(&self) -> usize {
-        self.scaling
-    }
-
-    pub fn set_scaling(&mut self, scaling: usize) {
-        self.scaling = scaling;
-        self.save().unwrap();
-    }
-
-    pub fn show_fps(&self) -> bool {
-        self.show_fps
-    }
-
-    pub fn set_show_fps(&mut self, show_fps: bool) {
-        self.show_fps = show_fps;
-        self.save().unwrap();
-    }
-
-    pub fn save_dir(&self) -> &Path {
-        &self.save_dir
-    }
-
-    pub fn set_save_dir(&mut self, save_dir: PathBuf) {
-        self.save_dir = save_dir;
-        self.save().unwrap();
-    }
-
     pub fn system_key_config(&self) -> &SystemKeyConfig {
         &self.system_key_config
-    }
-
-    pub fn hotkeys(&self) -> &HotKeys {
-        &self.hotkeys
-    }
-
-    pub fn hotkeys_mut(&mut self) -> &mut HotKeys {
-        &mut self.hotkeys
-    }
-
-    pub fn frame_skip_on_turbo(&self) -> usize {
-        self.frame_skip_on_turbo
-    }
-
-    pub fn set_frame_skip_on_turbo(&mut self, frame_skip_on_turbo: usize) {
-        self.frame_skip_on_turbo = frame_skip_on_turbo;
-        self.save().unwrap();
     }
 
     pub fn core_config<T: EmulatorCore>(&self) -> T::Config {

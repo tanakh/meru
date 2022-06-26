@@ -242,12 +242,12 @@ fn window_control_event(
                         app_state.current(),
                         window,
                         fullscreen_state.0,
-                        config.scaling(),
+                        config.scaling,
                     );
                 }
             }
             WindowControlEvent::ChangeScale(scale) => {
-                config.set_scaling(*scale);
+                config.scaling = *scale;
                 if running {
                     let window = windows.get_primary_mut().unwrap();
                     restore_window(
@@ -255,7 +255,7 @@ fn window_control_event(
                         app_state.current(),
                         window,
                         fullscreen_state.0,
-                        config.scaling(),
+                        config.scaling,
                     );
                 }
             }
@@ -266,7 +266,7 @@ fn window_control_event(
                     app_state.current(),
                     window,
                     fullscreen_state.0,
-                    config.scaling(),
+                    config.scaling,
                 );
             }
         }
@@ -398,11 +398,11 @@ fn fps_system(
 
     let mut p0 = ps.p0();
     let (mut text, mut visibility, mut transform) = p0.single_mut();
-    visibility.is_visible = config.show_fps();
+    visibility.is_visible = config.show_fps;
     let fps_diag = diagnostics.get(FrameTimeDiagnosticsPlugin::FPS).unwrap();
     let fps = fps_diag.value().unwrap_or(0.0)
         * if is_turbo.0 {
-            config.frame_skip_on_turbo() as f64
+            config.frame_skip_on_turbo as f64
         } else {
             1.0
         };
@@ -412,7 +412,7 @@ fn fps_system(
 
     let mut p1 = ps.p1();
     let (mut visibility, mut transform) = p1.single_mut();
-    visibility.is_visible = config.show_fps();
+    visibility.is_visible = config.show_fps;
     *transform = Transform::from_xyz(
         (screen_width / 2 - 16) as _,
         (screen_height / 2 - 8) as _,

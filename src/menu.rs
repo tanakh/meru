@@ -100,7 +100,6 @@ struct MenuState {
     tab: MenuTab,
     controller_tab: ControllerTab,
     controller_button_ix: usize,
-    last_palette_changed: Option<SystemTime>,
     hotkey_select: usize,
     constructing_hotkey: Option<Vec<SingleKey>>,
 }
@@ -111,7 +110,6 @@ impl Default for MenuState {
             tab: MenuTab::File,
             controller_tab: ControllerTab::Keyboard,
             controller_button_ix: 0,
-            last_palette_changed: None,
             hotkey_select: 0,
             constructing_hotkey: None,
         }
@@ -137,17 +135,11 @@ fn menu_system(
         tab,
         controller_tab,
         controller_button_ix,
-        last_palette_changed,
         hotkey_select,
         constructing_hotkey,
     } = menu_state.as_mut();
 
-    if let Some(changed) = last_palette_changed {
-        if changed.elapsed().unwrap().as_secs_f64() > 5.0 {
-            config.save().unwrap();
-            *last_palette_changed = None;
-        }
-    }
+    let old_config = config.clone();
 
     egui::CentralPanel::default().show(egui_ctx.ctx_mut(), |ui| {
         let width = ui.available_width();
@@ -221,7 +213,7 @@ fn menu_system(
                 }
             }
             MenuTab::GameInfo => {
-                if let Some(mut emulator) = emulator {
+                if let Some(emulator) = emulator {
                     tab_game_info(ui, emulator.as_ref());
                 }
             }
@@ -237,10 +229,7 @@ fn menu_system(
                 ui.heading("Gaphics Settings");
                 ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
                     ui.group(|ui| {
-                        let mut show_fps = config.show_fps();
-                        if ui.checkbox(&mut show_fps, "Display FPS").changed() {
-                            config.set_show_fps(show_fps);
-                        }
+                        ui.checkbox(&mut config.show_fps, "Display FPS");
 
                         let mut fullscreen = fullscreen_state.0;
                         if ui.checkbox(&mut fullscreen, "Full Screen").changed() {
@@ -250,9 +239,12 @@ fn menu_system(
                         ui.horizontal(|ui| {
                             ui.label("Window Scale:");
 
-                            let mut scale = config.scaling();
-                            if ui.add(egui::Slider::new(&mut scale, 1..=8)).changed() {
-                                window_control_event.send(WindowControlEvent::ChangeScale(scale));
+                            if ui
+                                .add(egui::Slider::new(&mut config.scaling, 1..=8))
+                                .changed()
+                            {
+                                window_control_event
+                                    .send(WindowControlEvent::ChangeScale(config.scaling));
                             }
                         });
                     });
@@ -295,11 +287,15 @@ fn menu_system(
                     key_code_input,
                     gamepad_button_input,
                     constructing_hotkey,
-                    config,
+                    config.as_mut(),
                 );
             }
         });
     });
+
+    if &old_config != config.as_ref() {
+        config.save().unwrap();
+    }
 }
 
 fn tab_file(
@@ -371,7 +367,7 @@ fn tab_state(
                         emulator.core.core_info().abbrev,
                         &emulator.game_name,
                         i,
-                        config.save_dir(),
+                        &config.save_dir,
                     )
                     .unwrap();
 
@@ -435,20 +431,14 @@ fn tab_general_setting(ui: &mut egui::Ui, config: &mut ResMut<Config>) {
     ui.horizontal(|ui| {
         ui.label("Frame skip on turbo:");
 
-        let mut frame_skip_on_turbo = config.frame_skip_on_turbo();
-        if ui
-            .add(egui::Slider::new(&mut frame_skip_on_turbo, 1..=10))
-            .changed()
-        {
-            config.set_frame_skip_on_turbo(frame_skip_on_turbo);
-        }
+        ui.add(egui::Slider::new(&mut config.frame_skip_on_turbo, 1..=10));
     });
 
     ui.separator();
 
-    let mut save_dir = Some(config.save_dir().to_owned());
+    let mut save_dir = Some(config.save_dir.clone());
     if file_field(ui, "Save file directory:", &mut save_dir, &[], false) {
-        config.set_save_dir(save_dir.unwrap());
+        config.save_dir = save_dir.unwrap();
     }
 
     ui.separator();
@@ -495,7 +485,7 @@ fn tab_hotkey(
     key_code_input: Res<Input<KeyCode>>,
     gamepad_button_input: Res<Input<GamepadButton>>,
     constructing_hotkey: &mut Option<Vec<SingleKey>>,
-    mut config: ResMut<Config>,
+    config: &mut Config,
 ) {
     ui.heading("HotKey Settings");
     let grid = |ui: &mut egui::Ui| {
@@ -508,7 +498,6 @@ fn tab_hotkey(
         ui.end_row();
 
         let mut ix = 1;
-        let mut changed = false;
         let mut hotkey_determined = false;
 
         if *hotkey_select != 0 {
@@ -547,14 +536,13 @@ fn tab_hotkey(
             ui.label(hotkey.to_string());
 
             ui.horizontal(|ui| {
-                let key_assign = config.hotkeys_mut().key_assign_mut(hotkey).unwrap();
+                let key_assign = config.hotkeys.key_assign_mut(hotkey).unwrap();
                 for i in 0..key_assign.0.len() {
                     let key_str = if *hotkey_select == ix {
                         if hotkey_determined {
                             *hotkey_select = 0;
                             key_assign.0[i] = MultiKey(constructing_hotkey.clone().unwrap());
                             *constructing_hotkey = None;
-                            changed = true;
                         }
 
                         if let Some(mk) = constructing_hotkey {
@@ -584,7 +572,6 @@ fn tab_hotkey(
                             .0
                             .push(MultiKey(constructing_hotkey.clone().unwrap()));
                         *constructing_hotkey = None;
-                        changed = true;
                     }
 
                     if let Some(mk) = constructing_hotkey {
@@ -603,10 +590,6 @@ fn tab_hotkey(
 
             ui.end_row();
         }
-
-        if changed {
-            config.save().unwrap();
-        }
     };
     ui.group(|ui| {
         egui::Grid::new("key_config")
@@ -616,8 +599,7 @@ fn tab_hotkey(
             .show(ui, grid);
     });
     if ui.button("Reset to default").clicked() {
-        *config.hotkeys_mut() = HotKeys::default();
-        config.save().unwrap();
+        config.hotkeys = HotKeys::default();
     }
 }
 
@@ -707,7 +689,6 @@ fn controller_ui(
                 if let Some(ix) = changed {
                     *controller_button_ix = ix + 1;
                     config.set_key_config(core, key_config);
-                    config.save().unwrap();
                 }
             });
     });
@@ -744,7 +725,6 @@ fn controller_ui(
         }
         *controller_button_ix = 0;
         config.set_key_config(core, cur_key_config);
-        config.save().unwrap();
     }
 }
 

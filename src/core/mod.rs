@@ -88,7 +88,7 @@ pub trait ConfigUi {
     fn ui(&mut self, ui: &mut egui::Ui);
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
 pub struct KeyConfig {
     pub keys: Vec<(String, KeyAssign)>,
 }
@@ -252,7 +252,7 @@ fn make_core_from_data<
 ) -> Result<Box<dyn EmulatorCoreWrap>> {
     let core_info = <T as EmulatorCore>::core_info();
     if core_info.file_extensions.contains(&ext) {
-        let backup = load_backup(core_info.abbrev, name, config.save_dir())?;
+        let backup = load_backup(core_info.abbrev, name, &config.save_dir)?;
         let data = data()?;
         let core = T::try_from_file(&data, backup.as_deref(), &config.core_config::<T>())?;
         Ok(Box::new(core))
@@ -286,7 +286,7 @@ fn try_make_emulator(
                     total_auto_saved_size: 0,
                     prev_auto_saved_frame: 0,
                     prev_backup_saved_frame: 0,
-                    save_dir: config.save_dir().to_owned(),
+                    save_dir: config.save_dir.clone(),
                     frames: 0,
                 });
             }
@@ -413,7 +413,7 @@ impl Emulator {
             &self.game_name,
             slot,
             &data,
-            config.save_dir(),
+            &config.save_dir,
         )
     }
 
@@ -422,7 +422,7 @@ impl Emulator {
             self.core.core_info().abbrev,
             &self.game_name,
             slot,
-            config.save_dir(),
+            &config.save_dir,
         )?;
         self.core.load_state(&data)
     }
@@ -630,7 +630,7 @@ fn emulator_system(
         let image = images.get_mut(&screen.0).unwrap();
         copy_frame_buffer(&mut image.data, fb);
     } else {
-        for _ in 0..config.frame_skip_on_turbo() {
+        for _ in 0..config.frame_skip_on_turbo {
             emulator.core.exec_frame();
             if queue.len() < samples_per_frame * 2 {
                 push_audio_queue(&mut *queue, emulator.core.audio_buffer());
