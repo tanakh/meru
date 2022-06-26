@@ -2478,6 +2478,7 @@ dependencies = [
  "enum-iterator",
  "image 0.24.2",
  "log",
+ "meru-interface",
  "rfd",
  "serde",
  "serde_json",
@@ -2486,6 +2487,16 @@ dependencies = [
  "tgbr-core",
  "winit",
  "winres",
+]
+
+[[package]]
+name = "meru-interface"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "bevy_egui",
+ "serde",
 ]
 
 [[package]]

@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use bevy::prelude::*;
 use directories::ProjectDirs;
 use log::info;
+use meru_interface::{key_assign::*, EmulatorCore, KeyConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -10,11 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{
-    core::{Emulator, EmulatorCore, KeyConfig},
-    hotkey::HotKeys,
-    key_assign::*,
-};
+use crate::{core::Emulator, hotkey::HotKeys};
 
 // const AUDIO_FREQUENCY: usize = 48000;
 // const AUDIO_BUFFER_SAMPLES: usize = 2048;

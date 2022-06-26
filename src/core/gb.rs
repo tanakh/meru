@@ -1,14 +1,13 @@
 use anyhow::Result;
 use bevy::prelude::*;
 use bevy_egui::egui::{self, SelectableLabel};
+use meru_interface::{key_assign::*, ConfigUi, Pixel};
 use serde::{Deserialize, Serialize};
 use std::{cmp::min, path::PathBuf};
-
 use tgbr_core::{BootRoms, Color, GameBoy, Model, Rom};
 
 use crate::{
-    core::{ConfigUi, CoreInfo, EmulatorCore, KeyConfig},
-    key_assign::*,
+    core::{CoreInfo, EmulatorCore, KeyConfig},
     menu::file_field,
 };
 
@@ -380,7 +379,7 @@ pub trait ColorCorrection {
             for x in 0..width {
                 let ix = y * width + x;
                 let c = self.translate(&src.buf[ix]);
-                dest.buffer[ix] = super::Pixel::new(c.r, c.g, c.b);
+                dest.buffer[ix] = Pixel::new(c.r, c.g, c.b);
             }
         }
     }

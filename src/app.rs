@@ -9,6 +9,7 @@ use bevy_easings::EasingsPlugin;
 use bevy_egui::{EguiContext, EguiPlugin};
 use bevy_tiled_camera::TiledCameraPlugin;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use meru_interface::AudioSample;
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
@@ -16,7 +17,7 @@ use std::{
 
 use crate::{
     config::{self, load_config, load_persistent_state},
-    core::{self, AudioSample, Emulator},
+    core::{self, Emulator},
     hotkey,
     menu::{self, MENU_HEIGHT, MENU_WIDTH},
     rewinding::{self},

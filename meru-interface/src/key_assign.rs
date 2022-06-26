@@ -241,27 +241,31 @@ impl SingleKey {
     }
 }
 
+#[macro_export]
 macro_rules! any {
     ($x:expr, $($xs:expr),* $(,)?) => {
         [$($xs),*].into_iter().fold($x, |a, b| a.or(b))
     };
 }
-pub(crate) use any;
+pub use any;
 
+#[macro_export]
 macro_rules! all {
     ($x:expr, $($xs:expr),* $(,)?) => {{
         [$($xs),*].into_iter().fold($x, |a, b| a.and(b))
     }};
 }
-pub(crate) use all;
+pub use all;
 
+#[macro_export]
 macro_rules! keycode {
     ($code:ident) => {
         KeyAssign(vec![MultiKey(vec![SingleKey::KeyCode(KeyCode::$code)])])
     };
 }
-pub(crate) use keycode;
+pub use keycode;
 
+#[macro_export]
 macro_rules! pad_button {
     ($id:literal, $button:ident) => {
         KeyAssign(vec![MultiKey(vec![SingleKey::GamepadButton(
@@ -269,7 +273,7 @@ macro_rules! pad_button {
         )])])
     };
 }
-pub(crate) use pad_button;
+pub use pad_button;
 
 pub struct InputState<'a> {
     input_keycode: &'a Input<KeyCode>,

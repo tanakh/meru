@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use enum_iterator::{all, Sequence};
+use meru_interface::key_assign::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
@@ -7,7 +8,6 @@ use crate::{
     app::{AppState, ShowMessage, UiState, WindowControlEvent},
     config::Config,
     core::Emulator,
-    key_assign::*,
 };
 
 pub struct HotKeyPlugin;

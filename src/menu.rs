@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContext};
 use enum_iterator::all;
+use meru_interface::key_assign::*;
 use std::path::PathBuf;
 
 use crate::{
@@ -9,8 +10,6 @@ use crate::{
     core::{Emulator, ARCHIVE_EXTENSIONS},
     file::state_date,
     hotkey::{HotKey, HotKeys},
-    // input::KeyConfig,
-    key_assign::{MultiKey, SingleKey, ToStringKey},
 };
 
 pub const MENU_WIDTH: usize = 1280;

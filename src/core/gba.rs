@@ -1,16 +1,13 @@
 use anyhow::{anyhow, Result};
 use bevy::prelude::*;
 use bevy_egui::egui;
+use meru_interface::{key_assign::*, ConfigUi, Pixel};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
-
 use tgba_core::{Agb, Rom};
 
 use crate::{
-    core::{
-        AudioBuffer, AudioSample, ConfigUi, CoreInfo, EmulatorCore, FrameBuffer, KeyConfig, Pixel,
-    },
-    key_assign::*,
+    core::{AudioBuffer, AudioSample, CoreInfo, EmulatorCore, FrameBuffer, KeyConfig},
     menu::file_field,
 };
 
@@ -37,12 +34,6 @@ fn default_key_config() -> KeyConfig {
 
     KeyConfig {
         keys: keys.into_iter().map(|(k, v)| (k.to_string(), v)).collect(),
-    }
-}
-
-impl Default for KeyConfig {
-    fn default() -> Self {
-        default_key_config()
     }
 }
 

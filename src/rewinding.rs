@@ -1,12 +1,12 @@
 use bevy::prelude::*;
 use bevy_easings::*;
+use meru_interface::key_assign::InputState;
 use std::time::Duration;
 
 use crate::{
     app::{AppState, ScreenSprite},
     config,
     core::Emulator,
-    key_assign::InputState,
 };
 
 pub struct AutoSavedState {
