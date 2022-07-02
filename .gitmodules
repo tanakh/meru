@@ -1,6 +1,0 @@
-[submodule "tgbr"]
-	path = tgbr
-	url = https://github.com/tanakh/tgbr
-[submodule "tgba"]
-	path = tgba
-	url = https://github.com/tanakh/tgba
