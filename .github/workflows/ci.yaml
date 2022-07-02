@@ -61,7 +61,7 @@ jobs:
     steps:
       - name: Setup | Install dependencies
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt install -y libasound2-dev libudev-dev libgtk-3-dev
+        run: sudo apt-get update && sudo apt install -y libarchive-dev libasound2-dev libudev-dev libgtk-3-dev
 
       - name: Setup | Checkout
         uses: actions/checkout@v2
