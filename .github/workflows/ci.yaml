@@ -65,7 +65,7 @@ jobs:
 
       - name: Setup | Install dependencies (Windows)
         if: matrix.os == 'windows-latest'
-        run: cargo install cargo-vcpkg && cargo vcpkg build
+        run: ls && cargo install cargo-vcpkg && cargo vcpkg build
 
       - name: Setup | Checkout
         uses: actions/checkout@v2
