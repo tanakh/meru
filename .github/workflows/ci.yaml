@@ -61,10 +61,14 @@ jobs:
     steps:
       - name: Setup | Install dependencies
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt install -y libasound2-dev libudev-dev libgtk-3-dev libxcb-shape0-dev libxcb-xfixes0-dev
+        run: sudo apt-get update && sudo apt install -y libasound2-dev libudev-dev libgtk-3-dev
 
       - name: Setup | Checkout
         uses: actions/checkout@v2
+
+      - uses: webfactory/ssh-agent@v0.5.4
+        with:
+            ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Setup | Cache
         uses: Swatinem/rust-cache@v1
