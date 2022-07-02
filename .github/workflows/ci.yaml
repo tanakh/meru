@@ -1,0 +1,104 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  rustfmt:
+    name: Rustfmt [Formatter]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup | Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup | Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          profile: minimal
+          components: rustfmt
+
+      - name: Build | Format
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: Clippy [Linter]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup | Install dependencies
+        run: sudo apt-get update && sudo apt install -y libasound2-dev libudev-dev libgtk-3-dev libxcb-shape0-dev libxcb-xfixes0-dev
+
+      - name: Setup | Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup | Cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Setup | Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          components: clippy
+
+      - name: Build | Lint
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --workspace --locked --all-targets --all-features -- -D clippy::all
+
+  cargo_check:
+    name: Compile
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Setup | Install dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt install -y libasound2-dev libudev-dev libgtk-3-dev libxcb-shape0-dev libxcb-xfixes0-dev
+
+      - name: Setup | Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup | Cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Setup | Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Build | Check
+        run: cargo check --workspace --locked --target=${{ matrix.target }}
+
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    needs: cargo_check
+    steps:
+      - name: Setup | Install dependencies
+        run: sudo apt-get update && sudo apt install -y libasound2-dev libudev-dev libgtk-3-dev libxcb-shape0-dev libxcb-xfixes0-dev
+
+      - name: Setup | Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup | Cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Setup | Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Build | Test
+        run: cargo test --workspace --locked --release

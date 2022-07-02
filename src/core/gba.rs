@@ -4,7 +4,7 @@ use bevy_egui::egui;
 use meru_interface::{key_assign::*, ConfigUi, Pixel};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
-use tgba_core::{Agb, Rom};
+use tgba::{Agb, Rom};
 
 use crate::{
     core::{AudioBuffer, AudioSample, CoreInfo, EmulatorCore, FrameBuffer, KeyConfig},
@@ -142,7 +142,7 @@ impl EmulatorCore for GameBoyAdvanceCore {
     }
 
     fn set_input(&mut self, input: &super::InputData) {
-        let agb_input = tgba_core::KeyInput {
+        let agb_input = tgba::KeyInput {
             a: input.get("a"),
             b: input.get("b"),
             start: input.get("start"),

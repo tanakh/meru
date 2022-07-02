@@ -8,8 +8,8 @@ edition = "2021"
 
 [dependencies]
 meru-interface = { path = "meru-interface" }
-tgbr-core = { path = "../tgbr/tgbr-core", version = "0.1.0" }
-tgba-core = { path = "../tgba/tgba-core" }
+tgbr-core = { git = "https://github.com/tanakh/tgbr", version = "0.1.0" }
+tgba = { git = "https://github.com/tanakh/tgba" }
 
 anyhow = "1.0.58"
 bevy = { version = "0.7", features = ["serialize"] }

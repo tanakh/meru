@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  github_build:
+    name: Build release binaries
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            binary: tgbr
+            extension: tar.xz
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            binary: tgbr.exe
+            extension: zip
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Build | Install dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt install -y libasound2-dev libudev-dev libgtk-3-dev libxcb-shape0-dev libxcb-xfixes0-dev
+      
+      - name: Build | Checkout
+        uses: actions/checkout@v2
+
+      - name: Build | Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          target: ${{ matrix.target }}
+          override: true
+
+      - name: Build | rust-cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Build | Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --target=${{ matrix.target }}
+
+      - name: Post Build | Prepare artifacts [Windows]
+        if: matrix.os == 'windows-latest'
+        run: |
+          cd target/${{ matrix.target }}/release
+          strip ${{ matrix.binary }}
+          cd -
+          cp target/${{ matrix.target }}/release/${{ matrix.binary }} .
+          7z a tgbr-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.extension }} ${{ matrix.binary }} README.md LICENSE
+
+      - name: Post Build | Prepare artifacts [-nix]
+        if: matrix.os != 'windows-latest'
+        run: |
+          strip target/${{ matrix.target }}/release/${{ matrix.binary }}
+          mkdir tgbr-${{ github.ref_name }}
+          cp target/${{ matrix.target }}/release/${{ matrix.binary }} README.md LICENSE tgbr-${{ github.ref_name }}
+          tar -cJvf tgbr-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.extension }} tgbr-${{ github.ref_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: tgbr-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.extension }}
+          path: tgbr-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.extension }}
+
+  github_release:
+    name: Create GitHub Release
+    needs: github_build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup | Checkout
+        uses: actions/checkout@v2.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Setup | Artifacts
+        uses: actions/download-artifact@v2
+
+      - name: Build | Publish
+        uses: softprops/action-gh-release@v1
+        with:
+          files: tgbr-*/tgbr-*

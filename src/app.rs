@@ -40,7 +40,7 @@ pub fn main() -> Result<()> {
     .init_resource::<FullscreenState>()
     .insert_resource(Msaa { samples: 4 })
     .insert_resource(bevy::log::LogSettings {
-        level: bevy::utils::tracing::Level::INFO,
+        level: bevy::utils::tracing::Level::WARN,
         filter: "".to_string(),
     })
     .add_plugins(DefaultPlugins)

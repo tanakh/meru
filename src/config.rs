@@ -90,12 +90,6 @@ impl Default for Config {
     }
 }
 
-impl Drop for Config {
-    fn drop(&mut self) {
-        self.save().unwrap();
-    }
-}
-
 impl Config {
     pub fn save(&self) -> Result<()> {
         let s = serde_json::to_string_pretty(self)?;
