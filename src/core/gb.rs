@@ -4,7 +4,7 @@ use bevy_egui::egui::{self, SelectableLabel};
 use meru_interface::{key_assign::*, ConfigUi, Pixel};
 use serde::{Deserialize, Serialize};
 use std::{cmp::min, path::PathBuf};
-use tgbr_core::{BootRoms, Color, GameBoy, Model, Rom};
+use tgbr::{BootRoms, Color, GameBoy, Model, Rom};
 
 use crate::{
     core::{CoreInfo, EmulatorCore, KeyConfig},
@@ -134,7 +134,7 @@ impl ConfigUi for GameBoyConfig {
                 ui.color_edit_button_srgb(&mut col).changed();
 
                 if let PaletteSelect::Custom(r) = &mut self.palette {
-                    r[i] = tgbr_core::Color::new(col[0], col[1], col[2]);
+                    r[i] = tgbr::Color::new(col[0], col[1], col[2]);
                 }
             }
         });
@@ -267,7 +267,7 @@ impl EmulatorCore for GameBoyCore {
     {
         let rom = Rom::from_bytes(data)?;
 
-        let gb_config = tgbr_core::Config::default()
+        let gb_config = tgbr::Config::default()
             .set_model(config.model)
             .set_dmg_palette(config.palette.get_palette())
             .set_boot_rom(config.boot_roms());
@@ -331,7 +331,7 @@ impl EmulatorCore for GameBoyCore {
     }
 
     fn set_input(&mut self, input: &super::InputData) {
-        let mut gb_input = tgbr_core::Input::default();
+        let mut gb_input = tgbr::Input::default();
 
         gb_input.pad.up = input.get("up");
         gb_input.pad.down = input.get("down");
@@ -367,9 +367,9 @@ pub fn make_color_correction(color_correction: bool) -> Box<dyn ColorCorrection>
 }
 
 pub trait ColorCorrection {
-    fn translate(&self, c: &tgbr_core::Color) -> tgbr_core::Color;
+    fn translate(&self, c: &tgbr::Color) -> tgbr::Color;
 
-    fn convert_frame_buffer(&self, dest: &mut super::FrameBuffer, src: &tgbr_core::FrameBuffer) {
+    fn convert_frame_buffer(&self, dest: &mut super::FrameBuffer, src: &tgbr::FrameBuffer) {
         dest.resize(src.width, src.height);
 
         let width = src.width;
@@ -388,7 +388,7 @@ pub trait ColorCorrection {
 struct RawColor;
 
 impl ColorCorrection for RawColor {
-    fn translate(&self, c: &tgbr_core::Color) -> tgbr_core::Color {
+    fn translate(&self, c: &tgbr::Color) -> tgbr::Color {
         *c
     }
 }
@@ -396,11 +396,11 @@ impl ColorCorrection for RawColor {
 struct CorrectColor;
 
 impl ColorCorrection for CorrectColor {
-    fn translate(&self, c: &tgbr_core::Color) -> tgbr_core::Color {
+    fn translate(&self, c: &tgbr::Color) -> tgbr::Color {
         let r = c.r as u16;
         let g = c.g as u16;
         let b = c.b as u16;
-        tgbr_core::Color {
+        tgbr::Color {
             r: min(240, ((r * 26 + g * 4 + b * 2) / 32) as u8),
             g: min(240, ((g * 24 + b * 8) / 32) as u8),
             b: min(240, ((r * 6 + g * 4 + b * 22) / 32) as u8),

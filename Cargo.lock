@@ -74,17 +74,6 @@ dependencies = [
 
 [[package]]
 name = "ambassador"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61874b33258f18ca7923047c12887078ccfe95c2811b03c1a09e309c19b7e50b"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "ambassador"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5bcbad70f1bf852d280ac8ba277df761e7c1749072a05db9b9506d201aab4b59"
@@ -944,9 +933,9 @@ checksum = "37ccbd214614c6783386c1af30caf03192f17891059cecc394b4fb119e363de3"
 
 [[package]]
 name = "bytemuck"
-version = "1.9.1"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdead85bdec19c194affaeeb670c0e41fe23de31459efd1c174d049269cf02cc"
+checksum = "c53dfa917ec274df8ed3c572698f381a24eef2efba9492d797301b72b6db408a"
 dependencies = [
  "bytemuck_derive",
 ]
@@ -1080,33 +1069,6 @@ dependencies = [
  "serde",
  "time",
  "winapi",
-]
-
-[[package]]
-name = "ciborium"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0c137568cc60b904a7724001b35ce2630fd00d5d84805fbb608ab89509d788f"
-dependencies = [
- "ciborium-io",
- "ciborium-ll",
- "serde",
-]
-
-[[package]]
-name = "ciborium-io"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "346de753af073cc87b52b2083a506b38ac176a44cfb05497b622e27be899b369"
-
-[[package]]
-name = "ciborium-ll"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "213030a2b5a4e0c0892b6652260cf6ccac84827b83a85a534e178e3906c4cf1b"
-dependencies = [
- "ciborium-io",
- "half",
 ]
 
 [[package]]
@@ -1408,9 +1370,9 @@ dependencies = [
 
 [[package]]
 name = "crypto-common"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57952ca27b5e3606ff4dd79b0020231aaf9d6aa76dc05fd30137538c50bd3ce8"
+checksum = "5999502d32b9c48d492abe66392408144895020ec4709e549e840799f3bb74c0"
 dependencies = [
  "generic-array",
  "typenum",
@@ -2056,12 +2018,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "half"
-version = "1.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eabb4a44450da02c90444cf74558da904edde8fb4e9035a9a6a4e15445af0bd7"
-
-[[package]]
 name = "hashbrown"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2484,7 +2440,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tgba",
- "tgbr-core",
+ "tgbr",
  "winit",
  "winres",
 ]
@@ -3650,7 +3606,7 @@ name = "tgba"
 version = "0.1.0"
 source = "git+https://github.com/tanakh/tgba#8c8af26c374c090124bf60d4f903af32a53c1cee"
 dependencies = [
- "ambassador 0.3.1",
+ "ambassador",
  "anyhow",
  "bincode",
  "bitvec",
@@ -3660,16 +3616,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "tgbr-core"
-version = "0.1.0"
-source = "git+https://github.com/tanakh/tgbr#38a45c862697c09b93c879e8f7977c2887a8136d"
+name = "tgbr"
+version = "0.2.0"
+source = "git+https://github.com/tanakh/tgbr#af06fd541b0549e0fe49232f3eeb232b1848d2b2"
 dependencies = [
- "ambassador 0.2.1",
+ "ambassador",
  "anyhow",
+ "bincode",
  "bitvec",
  "bytesize",
  "chrono",
- "ciborium",
  "log",
  "serde",
  "serde_bytes",
