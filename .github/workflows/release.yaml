@@ -16,11 +16,11 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            binary: tgbr
+            binary: meru
             extension: tar.xz
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            binary: tgbr.exe
+            binary: meru.exe
             extension: zip
 
     runs-on: ${{ matrix.os }}
@@ -62,21 +62,21 @@ jobs:
           strip ${{ matrix.binary }}
           cd -
           cp target/${{ matrix.target }}/release/${{ matrix.binary }} .
-          7z a tgbr-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.extension }} ${{ matrix.binary }} README.md LICENSE
+          7z a meru-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.extension }} ${{ matrix.binary }} README.md LICENSE
 
       - name: Post Build | Prepare artifacts [-nix]
         if: matrix.os != 'windows-latest'
         run: |
           strip target/${{ matrix.target }}/release/${{ matrix.binary }}
-          mkdir tgbr-${{ github.ref_name }}
-          cp target/${{ matrix.target }}/release/${{ matrix.binary }} README.md LICENSE tgbr-${{ github.ref_name }}
-          tar -cJvf tgbr-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.extension }} tgbr-${{ github.ref_name }}
+          mkdir meru-${{ github.ref_name }}
+          cp target/${{ matrix.target }}/release/${{ matrix.binary }} README.md LICENSE meru-${{ github.ref_name }}
+          tar -cJvf meru-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.extension }} meru-${{ github.ref_name }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v2
         with:
-          name: tgbr-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.extension }}
-          path: tgbr-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.extension }}
+          name: meru-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.extension }}
+          path: meru-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.extension }}
 
   github_release:
     name: Create GitHub Release
@@ -94,4 +94,4 @@ jobs:
       - name: Build | Publish
         uses: softprops/action-gh-release@v1
         with:
-          files: tgbr-*/tgbr-*
+          files: meru-*/meru-*
