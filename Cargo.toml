@@ -5,6 +5,14 @@ members = ["meru-interface"]
 name = "meru"
 version = "0.1.0"
 edition = "2021"
+authors = ["Hideyuki Tanaka <tanaka.hideyuki@gmail.com>"]
+license = "MIT"
+
+description = "Multi game console Emulator written in Rust"
+repository = "https://github.com/tanakh/tgba"
+readme = "README.md"
+categories = ["emulators"]
+keywords = ["emulators"]
 
 [dependencies]
 meru-interface = { path = "meru-interface", version = "0.1.0" }
