@@ -5,7 +5,7 @@ name: Release
 #     tags:
 #       - 'v*'
 
-on: [ workflow_dispatch ]
+on: workflow_dispatch
 
 jobs:
   github_build:
