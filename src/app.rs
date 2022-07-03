@@ -118,7 +118,7 @@ fn setup(
 fn set_window_icon(windows: NonSend<bevy::winit::WinitWindows>) {
     use winit::window::Icon;
 
-    const ICON_DATA: &[u8] = include_bytes!("../assets/tgbr.ico");
+    const ICON_DATA: &[u8] = include_bytes!("../assets/meru.ico");
     const ICON_WIDTH: u32 = 64;
     const ICON_HEIGHT: u32 = 64;
 
