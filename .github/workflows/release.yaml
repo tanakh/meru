@@ -1,10 +1,11 @@
 name: Release
 
-on:
-  workflow_dispatch:
-  push:
-    tags:
-      - 'v*'
+# on:
+#   push:
+#     tags:
+#       - 'v*'
+
+on: [ workflow_dispatch ]
 
 jobs:
   github_build:
