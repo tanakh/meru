@@ -54,14 +54,14 @@ macro_rules! def_emulator_cores {
 
         pub enum EmulatorEnum {
             $(
-                $constr($t),
+                $constr(Box<$t>),
             )*
         }
 
         $(
             impl From<$t> for EmulatorEnum {
                 fn from(core: $t) -> Self {
-                    EmulatorEnum::$constr(core)
+                    EmulatorEnum::$constr(Box::new(core))
                 }
             }
         )*
@@ -124,7 +124,7 @@ impl EmulatorEnum {
         fn core_info<T: EmulatorCore>(_: &T) -> &'static CoreInfo {
             T::core_info()
         }
-        dispatch_enum!(EmulatorEnum, self, core, core_info(core))
+        dispatch_enum!(EmulatorEnum, self, core, core_info(core.as_ref()))
     }
 
     pub fn game_info(&self) -> Vec<(String, String)> {
@@ -139,7 +139,7 @@ impl EmulatorEnum {
         fn set_config<T: EmulatorCore>(core: &mut T, config: &Config) {
             core.set_config(&config.core_config::<T>());
         }
-        dispatch_enum!(EmulatorEnum, self, core, set_config(core, config));
+        dispatch_enum!(EmulatorEnum, self, core, set_config(core.as_mut(), config));
     }
 
     pub fn reset(&mut self) {
@@ -204,10 +204,7 @@ pub const ARCHIVE_EXTENSIONS: &[&str] = &["zip", "7z", "rar"];
 fn is_archive_file(path: &Path) -> bool {
     path.extension().map_or(false, |ext| {
         let ext = ext.to_string_lossy();
-        ARCHIVE_EXTENSIONS
-            .iter()
-            .find(|r| **r == ext.as_ref())
-            .is_some()
+        ARCHIVE_EXTENSIONS.iter().any(|r| *r == ext.as_ref())
     })
 }
 
@@ -473,6 +470,7 @@ fn exit_emulator_system(mut commands: Commands, screen_entity: Query<Entity, Wit
     commands.entity(screen_entity.single()).despawn();
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emulator_system(
     mut commands: Commands,
     screen: Res<GameScreen>,
