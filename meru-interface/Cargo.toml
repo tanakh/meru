@@ -2,11 +2,17 @@
 name = "meru-interface"
 version = "0.1.0"
 edition = "2021"
+authors = ["Hideyuki Tanaka <tanaka.hideyuki@gmail.com>"]
+license = "MIT"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "Core interface for MERU multi emulator"
+repository = "https://github.com/tanakh/meru"
+readme = "README.md"
+categories = ["emulators"]
+keywords = ["emulators"]
 
 [dependencies]
 anyhow = "1.0.58"
-bevy_input = "0.7"
+bevy_input = { version = "0.7", features = ["serialize"] }
 egui = "0.18"
 serde = "1.0.137"

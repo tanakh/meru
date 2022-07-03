@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-meru-interface = { path = "meru-interface" }
+meru-interface = { path = "meru-interface", version = "0.1.0" }
 tgbr = { git = "https://github.com/tanakh/tgbr", version = "0.2.0" }
 tgba = { git = "https://github.com/tanakh/tgba", version = "0.1.0" }
 
