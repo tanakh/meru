@@ -37,15 +37,9 @@ fn default_key_config() -> KeyConfig {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 pub struct GameBoyAdvanceConfig {
     bios: Option<PathBuf>,
-}
-
-impl Default for GameBoyAdvanceConfig {
-    fn default() -> Self {
-        Self { bios: None }
-    }
 }
 
 impl ConfigUi for GameBoyAdvanceConfig {

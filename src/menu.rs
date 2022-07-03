@@ -62,7 +62,7 @@ fn menu_event_system(
         match event {
             MenuEvent::OpenRomFile(path) => {
                 info!("Opening file: {:?}", path);
-                match Emulator::try_new(&path, &config) {
+                match Emulator::try_new(path, &config) {
                     Ok(emulator) => {
                         commands.insert_resource(emulator);
                         persistent_state.add_recent(&path);
@@ -653,7 +653,7 @@ fn controller_ui(
                                 .on_hover_text("Click and type the key you want to assign");
 
                             if *controller_button_ix == ix {
-                                if let Some(kc) = key_code_input.get_just_pressed().nth(0) {
+                                if let Some(kc) = key_code_input.get_just_pressed().next() {
                                     assign.insert_keycode(*kc);
                                     changed = Some(ix);
                                 }
@@ -676,7 +676,7 @@ fn controller_ui(
                                 .on_hover_text("Click and press the button you want to assign");
 
                             if *controller_button_ix == ix {
-                                if let Some(button) = gamepad_button_input.get_just_pressed().nth(0)
+                                if let Some(button) = gamepad_button_input.get_just_pressed().next()
                                 {
                                     assign.insert_gamepad(*button);
                                     changed = Some(ix);
@@ -731,9 +731,7 @@ fn controller_ui(
 }
 
 fn file_dialog_filters() -> Vec<(String, Vec<String>)> {
-    let mut ret = vec![];
-
-    ret.push(("All files".into(), vec!["*".to_string()]));
+    let mut ret = vec![("All files".into(), vec!["*".to_string()])];
 
     for info in Emulator::core_infos() {
         let name = format!("{} file", info.abbrev);
