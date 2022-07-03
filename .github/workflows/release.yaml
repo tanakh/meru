@@ -25,12 +25,18 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Build | Install dependencies
-        if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt install -y libasound2-dev libudev-dev libgtk-3-dev
-      
       - name: Build | Checkout
         uses: actions/checkout@v2
+
+      - name: Build | Install dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt install -y libarchive-dev libasound2-dev libudev-dev libgtk-3-dev
+
+      - name: Setup | Install dependencies (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          cargo install cargo-vcpkg
+          cargo vcpkg build
 
       - name: Build | Install toolchain
         uses: actions-rs/toolchain@v1
