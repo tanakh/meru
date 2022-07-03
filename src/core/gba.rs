@@ -94,7 +94,9 @@ impl EmulatorCore for GameBoyAdvanceCore {
         self.agb.info()
     }
 
-    fn set_config(&mut self, _config: &Self::Config) {}
+    fn set_config(&mut self, config: &Self::Config) {
+        self.config = config.clone();
+    }
 
     fn exec_frame(&mut self, render_graphics: bool) {
         self.agb.exec_frame(render_graphics);
