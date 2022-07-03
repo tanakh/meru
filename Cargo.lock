@@ -3604,7 +3604,7 @@ dependencies = [
 [[package]]
 name = "tgba"
 version = "0.1.0"
-source = "git+https://github.com/tanakh/tgba#8c8af26c374c090124bf60d4f903af32a53c1cee"
+source = "git+https://github.com/tanakh/tgba#e04a9c3de5e9c25b7a38567471aca7cf089c2031"
 dependencies = [
  "ambassador",
  "anyhow",
@@ -3617,8 +3617,8 @@ dependencies = [
 
 [[package]]
 name = "tgbr"
-version = "0.2.0"
-source = "git+https://github.com/tanakh/tgbr#af06fd541b0549e0fe49232f3eeb232b1848d2b2"
+version = "0.2.1"
+source = "git+https://github.com/tanakh/tgbr#3eb075162da9551591d77ca21044d12a5261e315"
 dependencies = [
  "ambassador",
  "anyhow",
