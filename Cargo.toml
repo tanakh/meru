@@ -9,7 +9,7 @@ authors = ["Hideyuki Tanaka <tanaka.hideyuki@gmail.com>"]
 license = "MIT"
 
 description = "Multi game console Emulator written in Rust"
-repository = "https://github.com/tanakh/tgba"
+repository = "https://github.com/tanakh/meru"
 readme = "README.md"
 categories = ["emulators"]
 keywords = ["emulators"]
