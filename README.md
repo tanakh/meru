@@ -31,6 +31,16 @@ $ cd meru
 $ cargo run --release
 ```
 
+On Windows, you need to install dependencies by `cargo-vcpkg`:
+
+```sh
+$ git clone https://github.com/tanakh/meru
+$ cd meru
+$ cargo install cargo-vcpkg # if you are not installed cargo-vcpkg yet
+$ cargo vcpkg build
+$ cargo build --release
+```
+
 ## Usage
 
 Execute `meru.exe` or `meru` and load ROM from GUI.
