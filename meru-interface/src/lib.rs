@@ -72,34 +72,38 @@ impl AudioSample {
 
 #[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
 pub struct KeyConfig {
-    pub keys: Vec<(String, KeyAssign)>,
+    pub controllers: Vec<Vec<(String, KeyAssign)>>,
 }
 
 impl KeyConfig {
-    pub fn input(&self, input_state: &InputState) -> InputData {
-        let mut inputs = Vec::with_capacity(self.keys.len());
+    pub fn input(&self, input_state: &impl InputState) -> InputData {
+        let controllers = self
+            .controllers
+            .iter()
+            .map(|keys| {
+                keys.iter()
+                    .map(|(key, assign)| (key.clone(), assign.pressed(input_state)))
+                    .collect()
+            })
+            .collect();
 
-        for (key, assign) in &self.keys {
-            inputs.push((key.clone(), assign.pressed(input_state)));
-        }
-
-        InputData { inputs }
+        InputData { controllers }
     }
 }
 
 #[derive(Default)]
 pub struct InputData {
-    pub inputs: Vec<(String, bool)>,
+    pub controllers: Vec<Vec<(String, bool)>>,
 }
 
-impl InputData {
-    pub fn get(&self, key: &str) -> bool {
-        self.inputs
-            .iter()
-            .find_map(|(k, v)| (k == key).then(|| *v))
-            .unwrap()
-    }
-}
+// impl InputData {
+//     pub fn get(&self, key: &str) -> bool {
+//         self.inputs
+//             .iter()
+//             .find_map(|(k, v)| (k == key).then(|| *v))
+//             .unwrap()
+//     }
+// }
 
 pub trait ConfigUi {
     fn ui(&mut self, ui: &mut egui::Ui);

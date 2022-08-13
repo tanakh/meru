@@ -1,6 +1,6 @@
 [package]
 name = "meru-interface"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Hideyuki Tanaka <tanaka.hideyuki@gmail.com>"]
 license = "MIT"
@@ -13,6 +13,5 @@ keywords = ["emulators"]
 
 [dependencies]
 anyhow = "1.0.58"
-bevy_input = { version = "0.7", features = ["serialize"] }
 egui = "0.18"
-serde = "1.0.137"
+serde = { version = "1.0.137", features = ["derive"] }
