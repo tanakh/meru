@@ -1,9 +1,13 @@
 pub mod key_assign;
 
-use anyhow::Result;
+use std::path::PathBuf;
+
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::key_assign::{InputState, KeyAssign};
+pub use crate::key_assign::{
+    Gamepad, GamepadAxis, GamepadButton, GamepadButtonType, InputState, KeyAssign, KeyCode,
+    MultiKey, SingleKey, ToStringKey,
+};
 
 pub struct CoreInfo {
     pub system_name: &'static str,
@@ -53,9 +57,20 @@ impl Pixel {
     }
 }
 
-#[derive(Default)]
 pub struct AudioBuffer {
+    pub sample_rate: u32,
+    pub channels: u16,
     pub samples: Vec<AudioSample>,
+}
+
+impl Default for AudioBuffer {
+    fn default() -> Self {
+        Self {
+            sample_rate: 48000,
+            channels: 2,
+            samples: vec![],
+        }
+    }
 }
 
 #[derive(Default, Clone)]
@@ -96,25 +111,32 @@ pub struct InputData {
     pub controllers: Vec<Vec<(String, bool)>>,
 }
 
-// impl InputData {
-//     pub fn get(&self, key: &str) -> bool {
-//         self.inputs
-//             .iter()
-//             .find_map(|(k, v)| (k == key).then(|| *v))
-//             .unwrap()
-//     }
-// }
-
 pub trait ConfigUi {
-    fn ui(&mut self, ui: &mut egui::Ui);
+    fn ui<'a>(&'a mut self, ui: &mut impl Ui);
+}
+
+pub trait Ui {
+    fn horizontal(&mut self, f: impl FnOnce(&mut Self));
+    fn enabled(&mut self, enabled: bool, f: impl FnOnce(&mut Self));
+    fn label(&mut self, text: &str);
+    fn checkbox(&mut self, value: &mut bool, text: &str);
+    fn file(&mut self, label: &str, value: &mut Option<PathBuf>, filter: &[(&str, &[&str])]);
+    fn color(&mut self, value: &mut Pixel);
+    fn radio<T: PartialEq + Clone>(&mut self, value: &mut T, choices: &[(&str, T)]);
+    fn combo_box<T: PartialEq + Clone>(&mut self, value: &mut T, choices: &[(&str, T)]);
 }
 
 pub trait EmulatorCore {
+    type Error: std::error::Error + Send + Sync + 'static;
     type Config: ConfigUi + Serialize + DeserializeOwned + Default;
 
     fn core_info() -> &'static CoreInfo;
 
-    fn try_from_file(data: &[u8], backup: Option<&[u8]>, config: &Self::Config) -> Result<Self>
+    fn try_from_file(
+        data: &[u8],
+        backup: Option<&[u8]>,
+        config: &Self::Config,
+    ) -> Result<Self, Self::Error>
     where
         Self: Sized;
     fn game_info(&self) -> Vec<(String, String)>;
@@ -133,5 +155,5 @@ pub trait EmulatorCore {
     fn backup(&self) -> Option<Vec<u8>>;
 
     fn save_state(&self) -> Vec<u8>;
-    fn load_state(&mut self, data: &[u8]) -> Result<()>;
+    fn load_state(&mut self, data: &[u8]) -> Result<(), Self::Error>;
 }

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use enum_iterator::{all, Sequence};
-use meru_interface::key_assign::*;
+use meru_interface::KeyAssign;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
@@ -8,6 +8,7 @@ use crate::{
     app::{AppState, ShowMessage, UiState, WindowControlEvent},
     config::Config,
     core::Emulator,
+    input::InputState,
 };
 
 pub struct HotKeyPlugin;
@@ -63,6 +64,7 @@ pub struct HotKeys(Vec<(HotKey, KeyAssign)>);
 
 impl Default for HotKeys {
     fn default() -> Self {
+        use meru_interface::key_assign::*;
         use HotKey::*;
         Self(vec![
             (Reset, all![keycode!(LControl), keycode!(R)]),
@@ -219,7 +221,7 @@ fn process_hotkey(
                 window_control_event.send(WindowControlEvent::Restore);
             }
             HotKey::ScaleDown => {
-                config.scaling = config.scaling.saturating_sub(1);
+                config.scaling = (config.scaling - 1).max(1);
                 window_control_event.send(WindowControlEvent::Restore);
             }
 

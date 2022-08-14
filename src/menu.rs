@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContext};
 use enum_iterator::all;
-use meru_interface::key_assign::*;
+use meru_interface::{MultiKey, SingleKey, ToStringKey, Ui};
 use std::path::PathBuf;
 
 use crate::{
@@ -10,6 +10,7 @@ use crate::{
     core::{Emulator, ARCHIVE_EXTENSIONS},
     file::state_date,
     hotkey::{HotKey, HotKeys},
+    input::{to_meru_gamepad_button, to_meru_keycode},
 };
 
 pub const MENU_WIDTH: usize = 1280;
@@ -98,6 +99,7 @@ enum ControllerTab {
 struct MenuState {
     tab: MenuTab,
     controller_tab: ControllerTab,
+    controller_ix: usize,
     controller_button_ix: usize,
     hotkey_select: usize,
     constructing_hotkey: Option<Vec<SingleKey>>,
@@ -108,6 +110,7 @@ impl Default for MenuState {
         MenuState {
             tab: MenuTab::File,
             controller_tab: ControllerTab::Keyboard,
+            controller_ix: 0,
             controller_button_ix: 0,
             hotkey_select: 0,
             constructing_hotkey: None,
@@ -133,6 +136,7 @@ fn menu_system(
     let MenuState {
         tab,
         controller_tab,
+        controller_ix,
         controller_button_ix,
         hotkey_select,
         constructing_hotkey,
@@ -258,7 +262,7 @@ fn menu_system(
                 ui.heading(format!("{} Settings", core_info.system_name));
                 ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
                     ui.group(|ui| {
-                        Emulator::config_ui(ui, core_info.abbrev, config.as_mut());
+                        Emulator::config_ui(&mut EguiUi(ui), core_info.abbrev, config.as_mut());
                     });
                 });
             }
@@ -274,6 +278,7 @@ fn menu_system(
                     core,
                     config.as_mut(),
                     controller_tab,
+                    controller_ix,
                     controller_button_ix,
                     key_code_input,
                     gamepad_button_input,
@@ -505,10 +510,10 @@ fn tab_hotkey(
         if *hotkey_select != 0 {
             let mut current_pushed = vec![];
             for r in key_code_input.get_pressed() {
-                current_pushed.push(SingleKey::KeyCode(*r));
+                current_pushed.push(SingleKey::KeyCode(to_meru_keycode(r)));
             }
             for r in gamepad_button_input.get_pressed() {
-                current_pushed.push(SingleKey::GamepadButton(*r));
+                current_pushed.push(SingleKey::GamepadButton(to_meru_gamepad_button(r)));
             }
 
             if constructing_hotkey.is_none() {
@@ -610,6 +615,7 @@ fn controller_ui(
     core: &str,
     config: &mut Config,
     controller_tab: &mut ControllerTab,
+    controller_ix: &mut usize,
     controller_button_ix: &mut usize,
     key_code_input: Res<Input<KeyCode>>,
     gamepad_button_input: Res<Input<GamepadButton>>,
@@ -640,9 +646,12 @@ fn controller_ui(
 
                 let mut changed: Option<usize> = None;
 
-                match *controller_tab {
+                match controller_tab {
                     ControllerTab::Keyboard => {
-                        for (ix, (name, assign)) in key_config.keys.iter_mut().enumerate() {
+                        for (ix, (name, assign)) in key_config.controllers[*controller_ix]
+                            .iter_mut()
+                            .enumerate()
+                        {
                             let ix = ix + 1;
                             ui.label(name.clone());
                             let assign_str = assign
@@ -654,7 +663,7 @@ fn controller_ui(
 
                             if *controller_button_ix == ix {
                                 if let Some(kc) = key_code_input.get_just_pressed().next() {
-                                    assign.insert_keycode(*kc);
+                                    assign.insert_keycode(to_meru_keycode(kc));
                                     changed = Some(ix);
                                 }
                             }
@@ -664,13 +673,16 @@ fn controller_ui(
                     }
 
                     ControllerTab::Gamepad => {
-                        for (ix, (name, assign)) in key_config.keys.iter_mut().enumerate() {
+                        for (ix, (name, assign)) in key_config.controllers[*controller_ix]
+                            .iter_mut()
+                            .enumerate()
+                        {
                             let ix = ix + 1;
                             ui.label(name.clone());
 
                             let assign_str = assign
                                 .extract_gamepad()
-                                .map_or_else(|| "".to_string(), |k| ToStringKey(k).to_string());
+                                .map_or_else(|| "".to_string(), |k| ToStringKey(&k).to_string());
 
                             ui.selectable_value(controller_button_ix, ix, assign_str)
                                 .on_hover_text("Click and press the button you want to assign");
@@ -678,7 +690,7 @@ fn controller_ui(
                             if *controller_button_ix == ix {
                                 if let Some(button) = gamepad_button_input.get_just_pressed().next()
                                 {
-                                    assign.insert_gamepad(*button);
+                                    assign.insert_gamepad(to_meru_gamepad_button(button));
                                     changed = Some(ix);
                                 }
                             }
@@ -699,12 +711,11 @@ fn controller_ui(
         let default_key_config = Emulator::default_key_config(core);
         let mut cur_key_config = config.key_config(core).clone();
 
-        match *controller_tab {
+        match controller_tab {
             ControllerTab::Keyboard => {
-                for (key, assign) in cur_key_config.keys.iter_mut() {
+                for (key, assign) in cur_key_config.controllers[*controller_ix].iter_mut() {
                     assign.insert_keycode(
-                        default_key_config
-                            .keys
+                        default_key_config.controllers[*controller_ix]
                             .iter()
                             .find_map(|r| (&r.0 == key).then(|| r.1.extract_keycode()))
                             .unwrap()
@@ -713,10 +724,9 @@ fn controller_ui(
                 }
             }
             ControllerTab::Gamepad => {
-                for (key, assign) in cur_key_config.keys.iter_mut() {
+                for (key, assign) in cur_key_config.controllers[*controller_ix].iter_mut() {
                     assign.insert_gamepad(
-                        default_key_config
-                            .keys
+                        default_key_config.controllers[*controller_ix]
                             .iter()
                             .find_map(|r| (&r.0 == key).then(|| r.1.extract_gamepad()))
                             .unwrap()
@@ -790,4 +800,65 @@ pub fn file_field(
         ui.add(egui::TextEdit::singleline(&mut s.as_ref()));
     });
     ret
+}
+
+pub struct EguiUi<'a>(&'a mut egui::Ui);
+
+impl<'a> Ui for EguiUi<'a> {
+    fn horizontal(&mut self, f: impl FnOnce(&mut Self)) {
+        self.0.horizontal(|ui| {
+            // FIXME
+            f(&mut EguiUi(unsafe {
+                let p: *mut egui::Ui = ui;
+                &mut *p
+            }))
+        });
+    }
+
+    fn enabled(&mut self, enabled: bool, f: impl FnOnce(&mut Self)) {
+        self.0.add_enabled_ui(enabled, |ui| {
+            f(&mut EguiUi(unsafe {
+                let p: *mut egui::Ui = ui;
+                &mut *p
+            }))
+        });
+    }
+
+    fn label(&mut self, text: &str) {
+        self.0.label(text);
+    }
+
+    fn checkbox(&mut self, value: &mut bool, text: &str) {
+        self.0.checkbox(value, text);
+    }
+
+    fn file(&mut self, label: &str, value: &mut Option<PathBuf>, filter: &[(&str, &[&str])]) {
+        file_field(&mut self.0, label, value, filter, true);
+    }
+
+    fn color(&mut self, value: &mut meru_interface::Pixel) {
+        let mut col = [value.r, value.g, value.b];
+        if self.0.color_edit_button_srgb(&mut col).changed() {
+            *value = meru_interface::Pixel::new(col[0], col[1], col[2]);
+        }
+    }
+
+    fn radio<T: PartialEq + Clone>(&mut self, value: &mut T, choices: &[(&str, T)]) {
+        for (key, val) in choices {
+            self.0.radio_value(value, val.clone(), *key);
+        }
+    }
+
+    fn combo_box<T: PartialEq + Clone>(&mut self, value: &mut T, choices: &[(&str, T)]) {
+        let selected_text = choices.iter().find(|(_, v)| v == value).unwrap().0;
+
+        egui::ComboBox::from_label("")
+            .width(250.0)
+            .selected_text(selected_text)
+            .show_ui(&mut self.0, |ui| {
+                for (key, val) in choices {
+                    ui.selectable_value(value, val.clone(), *key);
+                }
+            });
+    }
 }

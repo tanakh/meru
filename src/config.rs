@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Result};
-use bevy::prelude::*;
 use directories::ProjectDirs;
 use log::info;
 use meru_interface::{key_assign::*, EmulatorCore, KeyConfig};
@@ -12,9 +11,6 @@ use std::{
 };
 
 use crate::{core::Emulator, hotkey::HotKeys};
-
-// const AUDIO_FREQUENCY: usize = 48000;
-// const AUDIO_BUFFER_SAMPLES: usize = 2048;
 
 #[derive(PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct SystemKeyConfig {
@@ -33,8 +29,8 @@ impl Default for SystemKeyConfig {
             down: any!(keycode!(Down), pad_button!(0, DPadDown)),
             left: any!(keycode!(Left), pad_button!(0, DPadLeft)),
             right: any!(keycode!(Right), pad_button!(0, DPadRight)),
-            ok: any!(keycode!(X), pad_button!(0, South)),
-            cancel: any!(keycode!(Z), pad_button!(0, West)),
+            ok: any!(keycode!(Return), pad_button!(0, East)),
+            cancel: any!(keycode!(Back), pad_button!(0, South)),
         }
     }
 }

@@ -6,11 +6,9 @@ use bevy::{
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
-use bevy_egui::egui;
 use bevy_tiled_camera::TiledCameraBundle;
 use meru_interface::{
-    key_assign::InputState, AudioBuffer, AudioSample, ConfigUi, CoreInfo, EmulatorCore,
-    FrameBuffer, InputData, KeyConfig,
+    AudioBuffer, AudioSample, ConfigUi, CoreInfo, EmulatorCore, FrameBuffer, InputData, KeyConfig,
 };
 use std::{
     collections::VecDeque,
@@ -21,10 +19,12 @@ use std::{
 };
 
 use crate::{
-    app::{AppState, AudioStreamQueue, ScreenSprite, TiledCamera, WindowControlEvent},
+    app::{AppState, ScreenSprite, TiledCamera, WindowControlEvent},
     config::Config,
     file::{load_backup, load_state, save_backup, save_state},
     hotkey,
+    input::InputState,
+    menu::EguiUi,
     rewinding::AutoSavedState,
 };
 
@@ -71,6 +71,7 @@ macro_rules! def_emulator_cores {
 def_emulator_cores!(
     GameBoy(gb::GameBoyCore),
     GameBoyAdvance(gba::GameBoyAdvanceCore),
+    Snes(super_sabicom::Snes),
 );
 
 impl EmulatorCores {
@@ -167,7 +168,8 @@ impl EmulatorEnum {
     }
 
     pub fn load_state(&mut self, data: &[u8]) -> Result<()> {
-        dispatch_enum!(EmulatorEnum, self, core, core.load_state(data))
+        dispatch_enum!(EmulatorEnum, self, core, core.load_state(data)?);
+        Ok(())
     }
 }
 
@@ -237,7 +239,7 @@ fn try_make_emulator(
     })
 }
 
-fn config_ui<T: EmulatorCore>(_: &PhantomData<T>, ui: &mut egui::Ui, config: &mut Config) {
+fn config_ui<T: EmulatorCore>(_: &PhantomData<T>, ui: &mut EguiUi, config: &mut Config) {
     let mut core_config = config.core_config::<T>();
     core_config.ui(ui);
     config.set_core_config::<T>(core_config);
@@ -252,7 +254,7 @@ impl Emulator {
         ret
     }
 
-    pub fn config_ui(ui: &mut egui::Ui, abbrev: &str, config: &mut Config) {
+    pub fn config_ui(ui: &mut EguiUi, abbrev: &str, config: &mut Config) {
         for core in EMULATOR_CORES.iter() {
             if core.core_info().abbrev == abbrev {
                 dispatch_enum!(EmulatorCores, core, core, config_ui(core, ui, config));
@@ -436,8 +438,8 @@ fn setup_emulator_system(
     mut images: ResMut<Assets<Image>>,
     mut event: EventWriter<WindowControlEvent>,
 ) {
-    let width = emulator.core.frame_buffer().width as u32;
-    let height = emulator.core.frame_buffer().height as u32;
+    let width = emulator.core.frame_buffer().width.max(1) as u32;
+    let height = emulator.core.frame_buffer().height.max(1) as u32;
     let img = Image::new(
         Extent3d {
             width,
@@ -470,6 +472,44 @@ fn exit_emulator_system(mut commands: Commands, screen_entity: Query<Entity, Wit
     commands.entity(screen_entity.single()).despawn();
 }
 
+struct AudioSource {
+    sample_rate: u32,
+    channels: u16,
+    data: Vec<i16>,
+    cursor: usize,
+}
+
+impl Iterator for AudioSource {
+    type Item = i16;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.cursor >= self.data.len() {
+            return None;
+        }
+        let sample = self.data[self.cursor];
+        self.cursor += 1;
+        Some(sample as i16)
+    }
+}
+
+impl rodio::Source for AudioSource {
+    fn current_frame_len(&self) -> Option<usize> {
+        None
+    }
+
+    fn channels(&self) -> u16 {
+        self.channels
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    fn total_duration(&self) -> Option<std::time::Duration> {
+        None
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn emulator_system(
     mut commands: Commands,
@@ -479,46 +519,32 @@ fn emulator_system(
     mut emulator: ResMut<Emulator>,
     mut images: ResMut<Assets<Image>>,
     input: Res<InputData>,
-    audio_queue: Res<AudioStreamQueue>,
+    audio_sink: ResMut<rodio::Sink>,
     is_turbo: Res<hotkey::IsTurbo>,
 ) {
     emulator.core.set_input(&*input);
 
-    {
-        let camera = camera.single();
-        let fb = emulator.core.frame_buffer();
-        if (camera.1.width, camera.1.height) != (fb.width, fb.height) {
-            commands.entity(camera.0).despawn();
-
-            commands
-                .spawn_bundle(
-                    TiledCameraBundle::new()
-                        .with_target_resolution(1, [fb.width as u32, fb.height as u32]),
-                )
-                .insert(TiledCamera {
-                    width: fb.width,
-                    height: fb.height,
-                });
-        }
-    }
-
-    let samples_per_frame = 48000 / 60;
-
-    let mut queue = audio_queue.queue.lock().unwrap();
-
-    let push_audio_queue = |queue: &mut VecDeque<AudioSample>, audio_buffer: &AudioBuffer| {
-        for sample in &audio_buffer.samples {
-            queue.push_back(sample.clone());
-        }
+    let push_audio_queue = |audio_buffer: &AudioBuffer| {
+        let source = AudioSource {
+            sample_rate: audio_buffer.sample_rate,
+            channels: audio_buffer.channels,
+            data: audio_buffer
+                .samples
+                .iter()
+                .flat_map(|sample| [sample.left, sample.right])
+                .collect(),
+            cursor: 0,
+        };
+        audio_sink.append(source);
     };
 
     if !is_turbo.0 {
-        if queue.len() > samples_per_frame * 4 {
+        if audio_sink.len() as u32 > 4 {
             // execution too fast. wait 1 frame.
             return;
         }
 
-        let mut exec_frame = |queue: &mut VecDeque<AudioSample>| {
+        let mut exec_frame = || {
             emulator.core.exec_frame(true);
             emulator.frames += 1;
 
@@ -544,31 +570,50 @@ fn emulator_system(
                     emulator.auto_saved_states.pop_front();
                 }
             }
-            push_audio_queue(&mut *queue, emulator.core.audio_buffer());
+            push_audio_queue(emulator.core.audio_buffer());
         };
 
-        if queue.len() < samples_per_frame * 2 {
+        if audio_sink.len() < 2 {
             // execution too slow. run 2 frame for supply enough audio samples.
-            exec_frame(&mut *queue);
+            exec_frame();
         }
-        exec_frame(&mut *queue);
+        exec_frame();
 
         // Update texture
         let fb = emulator.core.frame_buffer();
         let image = images.get_mut(&screen.0).unwrap();
-        copy_frame_buffer(&mut image.data, fb);
+        copy_frame_buffer(image, fb);
     } else {
         for i in 0..config.frame_skip_on_turbo {
             emulator.core.exec_frame(i == 0);
-            if queue.len() < samples_per_frame * 2 {
-                push_audio_queue(&mut *queue, emulator.core.audio_buffer());
+            if audio_sink.len() < 2 {
+                push_audio_queue(emulator.core.audio_buffer());
             }
         }
         // Update texture
         let fb = emulator.core.frame_buffer();
         let image = images.get_mut(&screen.0).unwrap();
-        copy_frame_buffer(&mut image.data, fb);
+        copy_frame_buffer(image, fb);
         emulator.frames += 1;
+    }
+
+    {
+        let camera = camera.single();
+        let image = images.get(&screen.0).unwrap();
+        let image_size = image.size();
+        let width = image_size[0] as usize;
+        let height = image_size[1] as usize;
+
+        if (camera.1.width, camera.1.height) != (width, height) {
+            commands.entity(camera.0).despawn();
+
+            commands
+                .spawn_bundle(
+                    TiledCameraBundle::new()
+                        .with_target_resolution(1, [width as u32, height as u32]),
+                )
+                .insert(TiledCamera { width, height });
+        }
     }
 
     if emulator.prev_backup_saved_frame + 60 * 60 <= emulator.frames {
@@ -576,9 +621,24 @@ fn emulator_system(
     }
 }
 
-fn copy_frame_buffer(data: &mut [u8], frame_buffer: &FrameBuffer) {
+fn copy_frame_buffer(image: &mut Image, frame_buffer: &FrameBuffer) {
+    if frame_buffer.width == 0 || frame_buffer.height == 0 {
+        return;
+    }
+
     let width = frame_buffer.width;
     let height = frame_buffer.height;
+
+    let image_size = image.size();
+    if (image_size[0] as usize, image_size[1] as usize) != (width, height) {
+        image.resize(Extent3d {
+            width: width as u32,
+            height: height as u32,
+            depth_or_array_layers: 1,
+        });
+    }
+
+    let data = &mut image.data;
 
     for y in 0..height {
         for x in 0..width {

@@ -1,15 +1,9 @@
-use anyhow::{anyhow, Result};
-use bevy::prelude::*;
-use bevy_egui::egui;
-use meru_interface::{key_assign::*, ConfigUi, Pixel};
+use meru_interface::{ConfigUi, Pixel, Ui};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 use tgba::{Agb, Rom};
 
-use crate::{
-    core::{AudioBuffer, AudioSample, CoreInfo, EmulatorCore, FrameBuffer, KeyConfig},
-    menu::file_field,
-};
+use crate::core::{AudioBuffer, AudioSample, CoreInfo, EmulatorCore, FrameBuffer, KeyConfig};
 
 const CORE_INFO: CoreInfo = CoreInfo {
     system_name: "Game Boy Advance (TGBA)",
@@ -18,6 +12,8 @@ const CORE_INFO: CoreInfo = CoreInfo {
 };
 
 fn default_key_config() -> KeyConfig {
+    use meru_interface::key_assign::*;
+
     #[rustfmt::skip]
     let keys = vec![
         ("up", any!(keycode!(Up), pad_button!(0, DPadUp))),
@@ -33,7 +29,7 @@ fn default_key_config() -> KeyConfig {
     ];
 
     KeyConfig {
-        keys: keys.into_iter().map(|(k, v)| (k.to_string(), v)).collect(),
+        controllers: vec![keys.into_iter().map(|(k, v)| (k.to_string(), v)).collect()],
     }
 }
 
@@ -43,10 +39,10 @@ pub struct GameBoyAdvanceConfig {
 }
 
 impl ConfigUi for GameBoyAdvanceConfig {
-    fn ui(&mut self, ui: &mut egui::Ui) {
-        file_field(ui, "BIOS:", &mut self.bios, &[("BIOS file", &["*"])], true);
+    fn ui(&mut self, ui: &mut impl Ui) {
+        ui.file("BIOS:", &mut self.bios, &[("BIOS file", &["*"])]);
         if self.bios.is_none() {
-            ui.colored_label(egui::Color32::RED, "BIOS must be specified");
+            ui.label("BIOS must be specified");
         }
     }
 }
@@ -58,22 +54,33 @@ pub struct GameBoyAdvanceCore {
     audio_buffer: AudioBuffer,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum GameBoyAdvanceError {
+    #[error("{0}")]
+    GameBoyAdvanceError(#[from] anyhow::Error),
+}
+
 impl EmulatorCore for GameBoyAdvanceCore {
     type Config = GameBoyAdvanceConfig;
+    type Error = GameBoyAdvanceError;
 
     fn core_info() -> &'static CoreInfo {
         &CORE_INFO
     }
 
-    fn try_from_file(data: &[u8], backup: Option<&[u8]>, config: &Self::Config) -> Result<Self>
+    fn try_from_file(
+        data: &[u8],
+        backup: Option<&[u8]>,
+        config: &Self::Config,
+    ) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
         let bios = config
             .bios
             .as_ref()
-            .ok_or_else(|| anyhow!("BIOS must be specified"))?;
-        let bios = fs::read(bios)?;
+            .ok_or_else(|| anyhow::anyhow!("BIOS must be specified"))?;
+        let bios = fs::read(bios).map_err(anyhow::Error::from)?;
 
         let rom = Rom::from_bytes(data)?;
 
@@ -138,18 +145,24 @@ impl EmulatorCore for GameBoyAdvanceCore {
     }
 
     fn set_input(&mut self, input: &super::InputData) {
-        let agb_input = tgba::KeyInput {
-            a: input.get("a"),
-            b: input.get("b"),
-            start: input.get("start"),
-            select: input.get("select"),
-            l: input.get("l"),
-            r: input.get("r"),
-            up: input.get("up"),
-            down: input.get("down"),
-            left: input.get("left"),
-            right: input.get("right"),
-        };
+        let mut agb_input = tgba::KeyInput::default();
+
+        for (key, value) in &input.controllers[0] {
+            match key.as_str() {
+                "a" => agb_input.a = *value,
+                "b" => agb_input.b = *value,
+                "start" => agb_input.start = *value,
+                "select" => agb_input.select = *value,
+                "l" => agb_input.l = *value,
+                "r" => agb_input.r = *value,
+                "up" => agb_input.up = *value,
+                "down" => agb_input.down = *value,
+                "left" => agb_input.left = *value,
+                "right" => agb_input.right = *value,
+                _ => unreachable!(),
+            }
+        }
+
         self.agb.set_key_input(&agb_input);
     }
 
@@ -161,7 +174,8 @@ impl EmulatorCore for GameBoyAdvanceCore {
         self.agb.save_state()
     }
 
-    fn load_state(&mut self, data: &[u8]) -> Result<()> {
-        self.agb.load_state(data)
+    fn load_state(&mut self, data: &[u8]) -> Result<(), Self::Error> {
+        self.agb.load_state(data)?;
+        Ok(())
     }
 }

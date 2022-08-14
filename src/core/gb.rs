@@ -1,15 +1,10 @@
-use anyhow::Result;
-use bevy::prelude::*;
-use bevy_egui::egui::{self, SelectableLabel};
-use meru_interface::{key_assign::*, ConfigUi, Pixel};
+use meru_interface::{ConfigUi, Pixel, Ui};
 use serde::{Deserialize, Serialize};
 use std::{cmp::min, path::PathBuf};
 use tgbr::{BootRoms, Color, GameBoy, Model, Rom};
+use thiserror::Error;
 
-use crate::{
-    core::{CoreInfo, EmulatorCore, KeyConfig},
-    menu::file_field,
-};
+use crate::core::{CoreInfo, EmulatorCore, KeyConfig};
 
 const CORE_INFO: CoreInfo = CoreInfo {
     system_name: "Game Boy (TGBR)",
@@ -18,6 +13,8 @@ const CORE_INFO: CoreInfo = CoreInfo {
 };
 
 fn default_key_config() -> KeyConfig {
+    use meru_interface::key_assign::*;
+
     #[rustfmt::skip]
     let keys = vec![
         ("up", any!(keycode!(Up), pad_button!(0, DPadUp))),
@@ -31,7 +28,7 @@ fn default_key_config() -> KeyConfig {
     ];
 
     KeyConfig {
-        keys: keys.into_iter().map(|(k, v)| (k.to_string(), v)).collect(),
+        controllers: vec![keys.into_iter().map(|(k, v)| (k.to_string(), v)).collect()],
     }
 }
 
@@ -64,35 +61,42 @@ impl Default for GameBoyConfig {
 }
 
 impl ConfigUi for GameBoyConfig {
-    fn ui(&mut self, ui: &mut egui::Ui) {
+    fn ui(&mut self, ui: &mut impl Ui) {
         ui.horizontal(|ui| {
             ui.label("Model:");
-            ui.radio_value(&mut self.model, Model::Auto, "Auto");
-            ui.radio_value(&mut self.model, Model::Dmg, "GameBoy");
-            ui.radio_value(&mut self.model, Model::Cgb, "GameBoy Color");
+            ui.radio(
+                &mut self.model,
+                &[
+                    ("Auto", Model::Auto),
+                    ("CGB", Model::Cgb),
+                    ("SGB", Model::Sgb),
+                ],
+            );
         });
 
         ui.label("Boot ROM:");
         ui.horizontal(|ui| {
-            ui.radio_value(&mut self.boot_rom, BootRom::None, "Do not use");
-            ui.radio_value(&mut self.boot_rom, BootRom::Internal, "Use internal ROM");
-            ui.radio_value(&mut self.boot_rom, BootRom::Custom, "Use specified ROM");
+            ui.radio(
+                &mut self.boot_rom,
+                &[
+                    ("Do not use", BootRom::None),
+                    ("Use internal ROM", BootRom::Internal),
+                    ("Use specified ROM", BootRom::Custom),
+                ],
+            );
         });
 
-        ui.add_enabled_ui(self.boot_rom == BootRom::Custom, |ui| {
-            file_field(
-                ui,
+        ui.enabled(self.boot_rom == BootRom::Custom, |ui| {
+            ui.file(
                 "DMG boot ROM:",
                 &mut self.custom_boot_roms.dmg,
                 &[("Boot ROM file", &["*"])],
-                true,
             );
-            file_field(
-                ui,
+
+            ui.file(
                 "CGB boot ROM:",
                 &mut self.custom_boot_roms.cgb,
                 &[("Boot ROM file", &["*"])],
-                true,
             );
         });
 
@@ -102,39 +106,46 @@ impl ConfigUi for GameBoyConfig {
         ui.label("GameBoy Palette:");
 
         ui.horizontal(|ui| {
-            egui::ComboBox::from_label("")
-                .width(250.0)
-                .selected_text(match self.palette {
-                    PaletteSelect::Dmg => "GameBoy",
-                    PaletteSelect::Pocket => "GameBoy Pocket",
-                    PaletteSelect::Light => "GameBoy Light",
-                    PaletteSelect::Grayscale => "Grayscale",
-                    PaletteSelect::Custom(_) => "Custom",
-                })
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.palette, PaletteSelect::Dmg, "GameBoy");
-                    ui.selectable_value(&mut self.palette, PaletteSelect::Pocket, "GameBoy Pocket");
-                    ui.selectable_value(&mut self.palette, PaletteSelect::Light, "GameBoy Light");
-                    ui.selectable_value(&mut self.palette, PaletteSelect::Grayscale, "Grayscale");
-                    if ui
-                        .add(SelectableLabel::new(
-                            matches!(self.palette, PaletteSelect::Custom(_)),
-                            "Custom",
-                        ))
-                        .clicked()
-                    {
-                        self.palette = PaletteSelect::Custom(*self.palette.get_palette());
+            #[derive(Clone)]
+            struct Palette(PaletteSelect);
+
+            impl PartialEq for Palette {
+                fn eq(&self, other: &Self) -> bool {
+                    use PaletteSelect::*;
+                    match (&self.0, &other.0) {
+                        (Custom(_), Custom(_)) => true,
+                        _ => self.0 == other.0,
                     }
-                });
+                }
+            }
+
+            let mut palette = Palette(self.palette.clone());
+
+            ui.combo_box(
+                &mut palette,
+                &[
+                    ("GameBoy", Palette(PaletteSelect::Dmg)),
+                    ("GameBoy Pocket", Palette(PaletteSelect::Pocket)),
+                    ("GameBoy Light", Palette(PaletteSelect::Light)),
+                    ("Grayscale", Palette(PaletteSelect::Grayscale)),
+                    (
+                        "Custom",
+                        Palette(PaletteSelect::Custom(*self.palette.get_palette())),
+                    ),
+                ],
+            );
+
+            self.palette = palette.0;
 
             let cols = *self.palette.get_palette();
 
             for i in (0..4).rev() {
-                let mut col = [cols[i].r, cols[i].g, cols[i].b];
-                ui.color_edit_button_srgb(&mut col).changed();
+                let mut col = Pixel::new(cols[i].r, cols[i].g, cols[i].b);
+
+                ui.color(&mut col);
 
                 if let PaletteSelect::Custom(r) = &mut self.palette {
-                    r[i] = tgbr::Color::new(col[0], col[1], col[2]);
+                    r[i] = tgbr::Color::new(col.r, col.g, col.b);
                 }
             }
         });
@@ -254,14 +265,25 @@ impl GameBoyConfig {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum GameBoyError {
+    #[error("{0}")]
+    GameBoyError(#[from] anyhow::Error),
+}
+
 impl EmulatorCore for GameBoyCore {
     type Config = GameBoyConfig;
+    type Error = GameBoyError;
 
     fn core_info() -> &'static CoreInfo {
         &CORE_INFO
     }
 
-    fn try_from_file(data: &[u8], backup: Option<&[u8]>, config: &Self::Config) -> Result<Self>
+    fn try_from_file(
+        data: &[u8],
+        backup: Option<&[u8]>,
+        config: &Self::Config,
+    ) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
@@ -333,14 +355,19 @@ impl EmulatorCore for GameBoyCore {
     fn set_input(&mut self, input: &super::InputData) {
         let mut gb_input = tgbr::Input::default();
 
-        gb_input.pad.up = input.get("up");
-        gb_input.pad.down = input.get("down");
-        gb_input.pad.left = input.get("left");
-        gb_input.pad.right = input.get("right");
-        gb_input.pad.a = input.get("a");
-        gb_input.pad.b = input.get("b");
-        gb_input.pad.start = input.get("start");
-        gb_input.pad.select = input.get("select");
+        for (key, value) in &input.controllers[0] {
+            match key.as_str() {
+                "up" => gb_input.pad.up = *value,
+                "down" => gb_input.pad.down = *value,
+                "left" => gb_input.pad.left = *value,
+                "right" => gb_input.pad.right = *value,
+                "a" => gb_input.pad.a = *value,
+                "b" => gb_input.pad.b = *value,
+                "start" => gb_input.pad.start = *value,
+                "select" => gb_input.pad.select = *value,
+                _ => unreachable!(),
+            }
+        }
 
         self.gb.set_input(&gb_input);
     }
@@ -353,8 +380,9 @@ impl EmulatorCore for GameBoyCore {
         self.gb.save_state()
     }
 
-    fn load_state(&mut self, data: &[u8]) -> Result<()> {
-        self.gb.load_state(data)
+    fn load_state(&mut self, data: &[u8]) -> Result<(), Self::Error> {
+        self.gb.load_state(data)?;
+        Ok(())
     }
 }
 

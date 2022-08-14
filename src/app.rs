@@ -8,12 +8,7 @@ use bevy::{
 use bevy_easings::EasingsPlugin;
 use bevy_egui::{EguiContext, EguiPlugin};
 use bevy_tiled_camera::TiledCameraPlugin;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use meru_interface::AudioSample;
-use std::{
-    collections::VecDeque,
-    sync::{Arc, Mutex},
-};
+use log::error;
 
 use crate::{
     config::{self, load_config, load_persistent_state},
@@ -24,7 +19,13 @@ use crate::{
 };
 
 pub fn main() -> Result<()> {
-    let config = load_config()?;
+    let config = match load_config() {
+        Ok(config) => config,
+        Err(err) => {
+            error!("Load config failed: {err}");
+            config::Config::default()
+        }
+    };
 
     let mut app = App::new();
     app.insert_resource(WindowDescriptor {
@@ -143,46 +144,15 @@ fn set_window_icon(windows: NonSend<bevy::winit::WinitWindows>) {
 #[cfg(not(target_os = "windows"))]
 fn set_window_icon() {}
 
-fn setup_audio(world: &mut World) {
-    let audio_queue = Arc::new(Mutex::new(VecDeque::new()));
-    world.insert_resource(AudioStreamQueue {
-        queue: Arc::clone(&audio_queue),
-    });
+pub fn setup_audio(world: &mut World) {
+    let (stream, stream_handle) =
+        rodio::OutputStream::try_default().expect("No audio output device available");
 
-    let host = cpal::default_host();
-    let device = host
-        .default_output_device()
-        .expect("No audio output device available");
+    let sink = rodio::Sink::try_new(&stream_handle).expect("Failed to create audio sink");
 
-    let output_stream = device
-        .build_output_stream(
-            &cpal::StreamConfig {
-                channels: 2,
-                sample_rate: cpal::SampleRate(48000),
-                buffer_size: cpal::BufferSize::Default,
-            },
-            move |data: &mut [i16], _info: &cpal::OutputCallbackInfo| {
-                assert!(data.len() % 2 == 0);
-
-                let mut lock = audio_queue.lock().unwrap();
-
-                for i in (0..data.len()).step_by(2) {
-                    if let Some(sample) = lock.pop_front() {
-                        data[i] = sample.left;
-                        data[i + 1] = sample.right;
-                    } else {
-                        data[i] = 0;
-                        data[i + 1] = 0;
-                    }
-                }
-            },
-            |err| panic!("Audio error: {err:#?}"),
-        )
-        .unwrap();
-
-    output_stream.play().unwrap();
-
-    world.insert_non_send_resource(output_stream);
+    world.insert_non_send_resource(stream);
+    world.insert_resource(stream_handle);
+    world.insert_resource(sink);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -190,11 +160,6 @@ pub enum AppState {
     Menu,
     Running,
     Rewinding,
-}
-
-#[derive(Default)]
-pub struct AudioStreamQueue {
-    pub queue: Arc<Mutex<VecDeque<AudioSample>>>,
 }
 
 #[derive(Default)]
