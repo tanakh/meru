@@ -212,8 +212,14 @@ pub enum GamepadAxisType {
     DPadY,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Default, Clone, Debug, Serialize, Deserialize)]
 pub struct KeyAssign(pub Vec<MultiKey>);
+
+impl From<SingleKey> for KeyAssign {
+    fn from(key: SingleKey) -> Self {
+        KeyAssign(vec![MultiKey(vec![key])])
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MultiKey(pub Vec<SingleKey>);

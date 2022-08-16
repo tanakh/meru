@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use crate::{
     app::{AppState, FullscreenState, ShowMessage, WindowControlEvent},
-    config::{Config, PersistentState},
+    config::{Config, PersistentState, SystemKey, SystemKeys},
     core::{Emulator, ARCHIVE_EXTENSIONS},
     file::state_date,
     hotkey::{HotKey, HotKeys},
@@ -35,6 +35,11 @@ impl Plugin for MenuPlugin {
     }
 }
 
+struct MenuError {
+    title: String,
+    message: String,
+}
+
 fn setup_menu_system(
     mut commands: Commands,
     mut windows: ResMut<Windows>,
@@ -46,6 +51,7 @@ fn setup_menu_system(
     }
 
     commands.insert_resource(MenuState::default());
+    commands.insert_resource(None as Option<MenuError>);
 }
 
 fn menu_exit(config: Res<Config>) {
@@ -57,6 +63,7 @@ fn menu_event_system(
     mut event: EventReader<MenuEvent>,
     mut app_state: ResMut<State<AppState>>,
     mut persistent_state: ResMut<PersistentState>,
+    mut error_msg: ResMut<Option<MenuError>>,
     config: Res<Config>,
 ) {
     for event in event.iter() {
@@ -70,7 +77,10 @@ fn menu_event_system(
                         app_state.set(AppState::Running).unwrap();
                     }
                     Err(err) => {
-                        error!("{err}");
+                        *error_msg.as_mut() = Some(MenuError {
+                            title: "Failed to open ROM".into(),
+                            message: err.to_string(),
+                        });
                     }
                 }
             }
@@ -88,6 +98,7 @@ enum MenuTab {
     ControllerSetting(String),
     Graphics,
     HotKey,
+    SystemKey,
 }
 
 #[derive(PartialEq, Eq)]
@@ -103,6 +114,8 @@ struct MenuState {
     controller_button_ix: usize,
     hotkey_select: usize,
     constructing_hotkey: Option<Vec<SingleKey>>,
+    system_key_tab: ControllerTab,
+    system_key_ix: usize,
 }
 
 impl Default for MenuState {
@@ -114,6 +127,8 @@ impl Default for MenuState {
             controller_button_ix: 0,
             hotkey_select: 0,
             constructing_hotkey: None,
+            system_key_tab: ControllerTab::Keyboard,
+            system_key_ix: 0,
         }
     }
 }
@@ -129,6 +144,7 @@ fn menu_system(
     mut menu_event: EventWriter<MenuEvent>,
     mut message_event: EventWriter<ShowMessage>,
     mut window_control_event: EventWriter<WindowControlEvent>,
+    mut menu_error: ResMut<Option<MenuError>>,
     key_code_input: Res<Input<KeyCode>>,
     gamepad_button_input: Res<Input<GamepadButton>>,
     fullscreen_state: Res<FullscreenState>,
@@ -140,7 +156,31 @@ fn menu_system(
         controller_button_ix,
         hotkey_select,
         constructing_hotkey,
+        system_key_tab,
+        system_key_ix: system_key_select,
     } = menu_state.as_mut();
+
+    if let Some(error) = menu_error.as_ref() {
+        let mut open = true;
+        let mut clicked = false;
+        egui::Window::new(&error.title)
+            .open(&mut open)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(egui_ctx.ctx_mut(), |ui| {
+                let layout = egui::Layout::top_down(egui::Align::Center);
+
+                ui.with_layout(layout, |ui| {
+                    ui.label(&error.message);
+                    if ui.button("OK").clicked() {
+                        clicked = true;
+                    }
+                });
+            });
+
+        if !open || clicked {
+            *menu_error.as_mut() = None;
+        }
+    }
 
     let old_config = config.clone();
 
@@ -149,50 +189,50 @@ fn menu_system(
 
         let frame = egui::Frame::default();
 
-        egui::SidePanel::left("left_panel")
-            .frame(frame)
-            .show_inside(ui, |ui| {
-                ui.set_width(width / 4.0);
+        let left_panel = egui::SidePanel::left("left_panel").frame(frame);
+        left_panel.show_inside(ui, |ui| {
+            ui.set_width(width / 4.0);
 
-                ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-                    ui.heading("Main Menu");
-                    ui.separator();
+            ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                ui.heading("Main Menu");
+                ui.separator();
 
-                    ui.selectable_value(tab, MenuTab::File, "📁 File");
+                ui.selectable_value(tab, MenuTab::File, "📁 File");
 
-                    ui.add_enabled_ui(emulator.is_some(), |ui| {
-                        ui.selectable_value(tab, MenuTab::State, "💾 State Save/Load");
-                    });
-
-                    ui.add_enabled_ui(emulator.is_some(), |ui| {
-                        ui.selectable_value(tab, MenuTab::GameInfo, "ℹ Game Info");
-                    });
-
-                    ui.selectable_value(tab, MenuTab::GeneralSetting, "🔧 General Setting");
-                    ui.selectable_value(tab, MenuTab::Graphics, "🖼 Graphics");
-
-                    ui.collapsing("⚙ Core Setting", |ui| {
-                        for core_info in Emulator::core_infos() {
-                            ui.selectable_value(
-                                tab,
-                                MenuTab::CoreSetting(core_info.abbrev.into()),
-                                core_info.system_name,
-                            );
-                        }
-                    });
-                    ui.collapsing("🎮 Controller Setting", |ui| {
-                        for core_info in Emulator::core_infos() {
-                            ui.selectable_value(
-                                tab,
-                                MenuTab::ControllerSetting(core_info.abbrev.into()),
-                                core_info.system_name,
-                            );
-                        }
-                    });
-
-                    ui.selectable_value(tab, MenuTab::HotKey, "⌨ HotKey");
+                ui.add_enabled_ui(emulator.is_some(), |ui| {
+                    ui.selectable_value(tab, MenuTab::State, "💾 State Save/Load");
                 });
+
+                ui.add_enabled_ui(emulator.is_some(), |ui| {
+                    ui.selectable_value(tab, MenuTab::GameInfo, "ℹ Game Info");
+                });
+
+                ui.selectable_value(tab, MenuTab::GeneralSetting, "🔧 General Setting");
+                ui.selectable_value(tab, MenuTab::Graphics, "🖼 Graphics");
+
+                ui.collapsing("⚙ Core Setting", |ui| {
+                    for core_info in Emulator::core_infos() {
+                        ui.selectable_value(
+                            tab,
+                            MenuTab::CoreSetting(core_info.abbrev.into()),
+                            core_info.system_name,
+                        );
+                    }
+                });
+                ui.collapsing("🎮 Controller Setting", |ui| {
+                    for core_info in Emulator::core_infos() {
+                        ui.selectable_value(
+                            tab,
+                            MenuTab::ControllerSetting(core_info.abbrev.into()),
+                            core_info.system_name,
+                        );
+                    }
+                });
+
+                ui.selectable_value(tab, MenuTab::HotKey, "⌨ HotKey");
+                ui.selectable_value(tab, MenuTab::SystemKey, "💻 SystemKey");
             });
+        });
 
         egui::CentralPanel::default().show_inside(ui, |ui| match tab {
             MenuTab::File => {
@@ -291,6 +331,16 @@ fn menu_system(
                     key_code_input,
                     gamepad_button_input,
                     constructing_hotkey,
+                    config.as_mut(),
+                );
+            }
+            MenuTab::SystemKey => {
+                tab_system_key(
+                    ui,
+                    system_key_tab,
+                    system_key_select,
+                    key_code_input,
+                    gamepad_button_input,
                     config.as_mut(),
                 );
             }
@@ -610,6 +660,102 @@ fn tab_hotkey(
     }
 }
 
+fn tab_system_key(
+    ui: &mut egui::Ui,
+    system_key_tab: &mut ControllerTab,
+    system_key_ix: &mut usize,
+    key_code_input: Res<Input<KeyCode>>,
+    gamepad_button_input: Res<Input<GamepadButton>>,
+    config: &mut Config,
+) {
+    ui.horizontal(|ui| {
+        let mut resp = ui.selectable_value(system_key_tab, ControllerTab::Keyboard, "Keyboard");
+        resp |= ui.selectable_value(system_key_tab, ControllerTab::Gamepad, "Gamepad");
+        if resp.clicked() {
+            *system_key_ix = 0;
+        }
+    });
+
+    ui.group(|ui| {
+        egui::Grid::new("key_config")
+            .num_columns(2)
+            .spacing([40.0, 4.0])
+            .striped(true)
+            .show(ui, |ui| {
+                ui.label("Button");
+                ui.label("Assignment");
+                ui.end_row();
+
+                ui.separator();
+                ui.separator();
+                ui.end_row();
+
+                let mut changed: Option<usize> = None;
+
+                match system_key_tab {
+                    ControllerTab::Keyboard => {
+                        for (ix, key) in all::<SystemKey>().enumerate() {
+                            ui.label(key.to_string());
+
+                            let assign = config.system_keys.key_assign_mut(key);
+
+                            let assign_str = assign
+                                .and_then(|r| r.extract_keycode())
+                                .map_or_else(|| "".to_string(), |k| format!("{k:?}"));
+
+                            ui.selectable_value(system_key_ix, ix, assign_str)
+                                .on_hover_text("Click and type the key you want to assign");
+
+                            if *system_key_ix == ix {
+                                if let Some(kc) = key_code_input.get_just_pressed().next() {
+                                    config.system_keys.insert_keycode(key, to_meru_keycode(kc));
+                                    changed = Some(ix);
+                                }
+                            }
+
+                            ui.end_row();
+                        }
+                    }
+
+                    ControllerTab::Gamepad => {
+                        for (ix, key) in all::<SystemKey>().enumerate() {
+                            ui.label(key.to_string());
+
+                            let assign = config.system_keys.key_assign_mut(key);
+
+                            let assign_str = assign
+                                .and_then(|r| r.extract_gamepad())
+                                .map_or_else(|| "".to_string(), |k| ToStringKey(&k).to_string());
+
+                            ui.selectable_value(system_key_ix, ix, assign_str)
+                                .on_hover_text("Click and type the key you want to assign");
+
+                            if *system_key_ix == ix {
+                                if let Some(button) = gamepad_button_input.get_just_pressed().next()
+                                {
+                                    config
+                                        .system_keys
+                                        .insert_gamepad(key, to_meru_gamepad_button(button));
+                                    changed = Some(ix);
+                                }
+                            }
+
+                            ui.end_row();
+                        }
+                    }
+                }
+
+                if let Some(ix) = changed {
+                    *system_key_ix = ix + 1;
+                }
+            });
+    });
+
+    if ui.button("Reset to default").clicked() {
+        config.system_keys = SystemKeys::default();
+    }
+}
+
 fn controller_ui(
     ui: &mut egui::Ui,
     core: &str,
@@ -621,6 +767,19 @@ fn controller_ui(
     gamepad_button_input: Res<Input<GamepadButton>>,
 ) {
     let mut key_config = config.key_config(core).clone();
+
+    if *controller_ix >= key_config.controllers.len() {
+        *controller_ix = 0;
+    }
+
+    ui.horizontal(|ui| {
+        for i in 0..key_config.controllers.len() {
+            let resp = ui.selectable_value(controller_ix, i, format!("Pad{}", i + 1));
+            if resp.clicked() {
+                *controller_button_ix = 0;
+            }
+        }
+    });
 
     ui.horizontal(|ui| {
         let mut resp = ui.selectable_value(controller_tab, ControllerTab::Keyboard, "Keyboard");
@@ -709,34 +868,9 @@ fn controller_ui(
 
     if ui.button("Reset to default").clicked() {
         let default_key_config = Emulator::default_key_config(core);
-        let mut cur_key_config = config.key_config(core).clone();
-
-        match controller_tab {
-            ControllerTab::Keyboard => {
-                for (key, assign) in cur_key_config.controllers[*controller_ix].iter_mut() {
-                    assign.insert_keycode(
-                        default_key_config.controllers[*controller_ix]
-                            .iter()
-                            .find_map(|r| (&r.0 == key).then(|| r.1.extract_keycode()))
-                            .unwrap()
-                            .unwrap(),
-                    );
-                }
-            }
-            ControllerTab::Gamepad => {
-                for (key, assign) in cur_key_config.controllers[*controller_ix].iter_mut() {
-                    assign.insert_gamepad(
-                        default_key_config.controllers[*controller_ix]
-                            .iter()
-                            .find_map(|r| (&r.0 == key).then(|| r.1.extract_gamepad()))
-                            .unwrap()
-                            .unwrap(),
-                    );
-                }
-            }
-        }
+        *controller_ix = 0;
         *controller_button_ix = 0;
-        config.set_key_config(core, cur_key_config);
+        config.set_key_config(core, default_key_config);
     }
 }
 

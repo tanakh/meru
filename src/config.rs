@@ -1,37 +1,111 @@
 use anyhow::{anyhow, Result};
 use directories::ProjectDirs;
+use enum_iterator::Sequence;
 use log::info;
-use meru_interface::{key_assign::*, EmulatorCore, KeyConfig};
+use meru_interface::{EmulatorCore, KeyAssign, KeyConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, VecDeque},
+    fmt::Display,
     fs,
     path::{Path, PathBuf},
 };
 
-use crate::{core::Emulator, hotkey::HotKeys};
+use crate::{core::Emulator, hotkey::HotKeys, input::InputState};
 
-#[derive(PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct SystemKeyConfig {
-    pub up: KeyAssign,
-    pub down: KeyAssign,
-    pub left: KeyAssign,
-    pub right: KeyAssign,
-    pub ok: KeyAssign,
-    pub cancel: KeyAssign,
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Serialize, Deserialize, Sequence)]
+pub enum SystemKey {
+    Up,
+    Down,
+    Left,
+    Right,
+    Ok,
+    Cancel,
 }
 
-impl Default for SystemKeyConfig {
+impl Display for SystemKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                SystemKey::Up => "Up",
+                SystemKey::Down => "Down",
+                SystemKey::Left => "Left",
+                SystemKey::Right => "Right",
+                SystemKey::Ok => "Ok",
+                SystemKey::Cancel => "Cancel",
+            }
+        )
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct SystemKeys(Vec<(SystemKey, KeyAssign)>);
+
+impl Default for SystemKeys {
     fn default() -> Self {
-        Self {
-            up: any!(keycode!(Up), pad_button!(0, DPadUp)),
-            down: any!(keycode!(Down), pad_button!(0, DPadDown)),
-            left: any!(keycode!(Left), pad_button!(0, DPadLeft)),
-            right: any!(keycode!(Right), pad_button!(0, DPadRight)),
-            ok: any!(keycode!(Return), pad_button!(0, East)),
-            cancel: any!(keycode!(Back), pad_button!(0, South)),
+        use meru_interface::key_assign::*;
+        use SystemKey::*;
+        Self(vec![
+            (Up, any!(keycode!(Up), pad_button!(0, DPadUp))),
+            (Down, any!(keycode!(Down), pad_button!(0, DPadDown))),
+            (Left, any!(keycode!(Left), pad_button!(0, DPadLeft))),
+            (Right, any!(keycode!(Right), pad_button!(0, DPadRight))),
+            (Ok, any!(keycode!(Return), pad_button!(0, East))),
+            (Cancel, any!(keycode!(Back), pad_button!(0, South))),
+        ])
+    }
+}
+
+impl SystemKeys {
+    pub fn key_assign(&self, system_key: SystemKey) -> Option<&KeyAssign> {
+        self.0
+            .iter()
+            .find(|(h, _)| *h == system_key)
+            .map(|(_, k)| k)
+    }
+
+    pub fn key_assign_mut(&mut self, system_key: SystemKey) -> Option<&mut KeyAssign> {
+        self.0
+            .iter_mut()
+            .find(|(h, _)| *h == system_key)
+            .map(|(_, k)| k)
+    }
+
+    pub fn insert_keycode(&mut self, system_key: SystemKey, key_code: meru_interface::KeyCode) {
+        if let Some(key_assign) = self.key_assign_mut(system_key) {
+            key_assign.insert_keycode(key_code);
+        } else {
+            use meru_interface::key_assign::*;
+            self.0
+                .push((system_key, SingleKey::KeyCode(key_code).into()));
         }
+    }
+
+    pub fn insert_gamepad(&mut self, system_key: SystemKey, button: meru_interface::GamepadButton) {
+        if let Some(key_assign) = self.key_assign_mut(system_key) {
+            key_assign.insert_gamepad(button);
+        } else {
+            use meru_interface::key_assign::*;
+            self.0
+                .push((system_key, SingleKey::GamepadButton(button).into()));
+        }
+    }
+
+    pub fn just_pressed(&self, system_key: SystemKey, input_state: &InputState<'_>) -> bool {
+        self.0
+            .iter()
+            .find(|r| r.0 == system_key)
+            .map_or(false, |r| r.1.just_pressed(input_state))
+    }
+
+    pub fn pressed(&self, system_key: SystemKey, input_state: &InputState<'_>) -> bool {
+        self.0
+            .iter()
+            .find(|r| r.0 == system_key)
+            .map_or(false, |r| r.1.pressed(input_state))
     }
 }
 
@@ -45,7 +119,7 @@ pub struct Config {
     pub auto_state_save_limit: usize,  // byte
     pub minimum_auto_save_span: usize, // frames
     pub hotkeys: HotKeys,
-    system_key_config: SystemKeyConfig,
+    pub system_keys: SystemKeys,
 
     #[serde(default)]
     core_configs: BTreeMap<String, Value>,
@@ -78,7 +152,7 @@ impl Default for Config {
             auto_state_save_rate: 128 * 1024,          // 128KB/s
             auto_state_save_limit: 1024 * 1024 * 1024, // 1GB
             minimum_auto_save_span: 60,
-            system_key_config: SystemKeyConfig::default(),
+            system_keys: SystemKeys::default(),
             hotkeys: HotKeys::default(),
             core_configs: BTreeMap::new(),
             key_configs: BTreeMap::new(),
@@ -93,10 +167,6 @@ impl Config {
         fs::write(&path, s)?;
         info!("Saved config file: {:?}", path.display());
         Ok(())
-    }
-
-    pub fn system_key_config(&self) -> &SystemKeyConfig {
-        &self.system_key_config
     }
 
     pub fn core_config<T: EmulatorCore>(&self) -> T::Config {

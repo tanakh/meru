@@ -12,7 +12,7 @@ use log::error;
 
 use crate::{
     config::{self, load_config, load_persistent_state},
-    core::{self, Emulator},
+    core::{self, Emulator, GameScreen},
     hotkey,
     menu::{self, MENU_HEIGHT, MENU_WIDTH},
     rewinding::{self},
@@ -406,18 +406,19 @@ struct MessageText {
 fn message_event_system(
     mut commands: Commands,
     time: Res<Time>,
-    emulator: Option<Res<Emulator>>,
+    screen: Option<Res<GameScreen>>,
+    images: Res<Assets<Image>>,
     mut event: EventReader<ShowMessage>,
     pixel_font: Query<&Handle<Font>, With<PixelFont>>,
     mut messages: Query<(Entity, &Transform), With<MessageText>>,
 ) {
-    let emulator = if let Some(emulator) = emulator {
-        emulator
+    let image = if let Some(screen) = screen {
+        images.get(&screen.0).unwrap()
     } else {
         return;
     };
-    let screen_width = emulator.core.frame_buffer().width as f32;
-    let screen_height = emulator.core.frame_buffer().height as f32;
+    let screen_width = image.size()[0] as f32;
+    let screen_height = image.size()[1] as f32;
 
     let pixel_font = pixel_font.single();
 

@@ -89,16 +89,19 @@ fn make_core_from_data<T: EmulatorCore + Into<EmulatorEnum>, F: FnMut() -> Resul
     ext: &str,
     mut data: F,
     config: &Config,
-) -> Result<EmulatorEnum> {
+) -> Option<Result<EmulatorEnum>> {
     let core_info = <T as EmulatorCore>::core_info();
-    if core_info.file_extensions.contains(&ext) {
+    if !core_info.file_extensions.contains(&ext) {
+        None?;
+    }
+
+    let mut f = || {
         let backup = load_backup(core_info.abbrev, name, &config.save_dir)?;
         let data = data()?;
         let core = T::try_from_file(&data, backup.as_deref(), &config.core_config::<T>())?;
         Ok(core.into())
-    } else {
-        bail!("Unsupported file extension: {ext}");
-    }
+    };
+    Some(f())
 }
 
 impl EmulatorEnum {
@@ -109,16 +112,16 @@ impl EmulatorEnum {
         config: &Config,
     ) -> Result<Self> {
         for core in EMULATOR_CORES {
-            if let Ok(ret) = dispatch_enum!(
+            if let Some(ret) = dispatch_enum!(
                 EmulatorCores,
                 core,
                 core,
                 make_core_from_data(core, name, ext, &mut data, config)
             ) {
-                return Ok(ret);
+                return ret;
             }
         }
-        bail!("Failed to load");
+        bail!("No supported core");
     }
 
     pub fn core_info(&self) -> &CoreInfo {
@@ -430,9 +433,10 @@ pub fn emulator_input_system(
         ));
 }
 
-struct GameScreen(pub Handle<Image>);
+pub struct GameScreen(pub Handle<Image>);
 
 fn setup_emulator_system(
+    mut windows: ResMut<Windows>,
     mut commands: Commands,
     emulator: Res<Emulator>,
     mut images: ResMut<Assets<Image>>,
@@ -461,14 +465,33 @@ fn setup_emulator_system(
 
     commands.insert_resource(GameScreen(texture));
 
+    let window = windows.get_primary_mut().unwrap();
+    window.set_cursor_lock_mode(true);
+    window.set_cursor_visibility(false);
+
     event.send(WindowControlEvent::Restore);
 }
 
-fn resume_emulator_system(mut event: EventWriter<WindowControlEvent>) {
+fn resume_emulator_system(
+    mut windows: ResMut<Windows>,
+    mut event: EventWriter<WindowControlEvent>,
+) {
+    let window = windows.get_primary_mut().unwrap();
+    window.set_cursor_lock_mode(true);
+    window.set_cursor_visibility(false);
+
     event.send(WindowControlEvent::Restore);
 }
 
-fn exit_emulator_system(mut commands: Commands, screen_entity: Query<Entity, With<ScreenSprite>>) {
+fn exit_emulator_system(
+    mut windows: ResMut<Windows>,
+    mut commands: Commands,
+    screen_entity: Query<Entity, With<ScreenSprite>>,
+) {
+    let window = windows.get_primary_mut().unwrap();
+    window.set_cursor_lock_mode(false);
+    window.set_cursor_visibility(true);
+
     commands.entity(screen_entity.single()).despawn();
 }
 
@@ -544,8 +567,8 @@ fn emulator_system(
             return;
         }
 
-        let mut exec_frame = || {
-            emulator.core.exec_frame(true);
+        let mut exec_frame = |render_graphics| {
+            emulator.core.exec_frame(render_graphics);
             emulator.frames += 1;
 
             // FIXME
@@ -575,9 +598,9 @@ fn emulator_system(
 
         if audio_sink.len() < 2 {
             // execution too slow. run 2 frame for supply enough audio samples.
-            exec_frame();
+            exec_frame(false);
         }
-        exec_frame();
+        exec_frame(true);
 
         // Update texture
         let fb = emulator.core.frame_buffer();
