@@ -44,7 +44,7 @@ impl FrameBuffer {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pixel {
     pub r: u8,
     pub g: u8,
@@ -73,7 +73,7 @@ impl Default for AudioBuffer {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AudioSample {
     pub left: i16,
     pub right: i16,
