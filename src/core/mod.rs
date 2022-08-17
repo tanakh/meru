@@ -1,4 +1,3 @@
-pub mod gb;
 pub mod gba;
 
 use anyhow::{anyhow, bail, Result};
@@ -69,7 +68,7 @@ macro_rules! def_emulator_cores {
 }
 
 def_emulator_cores!(
-    GameBoy(gb::GameBoyCore),
+    GameBoy(tgbr::GameBoy),
     GameBoyAdvance(gba::GameBoyAdvanceCore),
     Snes(super_sabicom::Snes),
 );
