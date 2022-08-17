@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 pub use crate::key_assign::{
-    Gamepad, GamepadAxis, GamepadButton, GamepadButtonType, InputState, KeyAssign, KeyCode,
-    MultiKey, SingleKey, ToStringKey,
+    Gamepad, GamepadAxis, GamepadAxisType, GamepadButton, GamepadButtonType, InputState, KeyAssign,
+    KeyCode, MultiKey, SingleKey,
 };
 
 pub struct CoreInfo {
@@ -112,7 +112,7 @@ pub struct InputData {
 }
 
 pub trait ConfigUi {
-    fn ui<'a>(&'a mut self, ui: &mut impl Ui);
+    fn ui<'a, 'b>(&'a mut self, ui: &'b mut impl Ui);
 }
 
 pub trait Ui {

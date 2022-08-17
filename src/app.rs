@@ -1,8 +1,9 @@
 use anyhow::Result;
 use bevy::{
     diagnostic::{Diagnostics, FrameTimeDiagnosticsPlugin},
-    input::{mouse::MouseButtonInput, ElementState},
+    input::{mouse::MouseButtonInput, ButtonState},
     prelude::*,
+    render::texture::{ImageSampler, ImageSettings},
     window::{PresentMode, WindowMode},
 };
 use bevy_easings::EasingsPlugin;
@@ -44,6 +45,9 @@ pub fn main() -> Result<()> {
         level: bevy::utils::tracing::Level::WARN,
         filter: "".to_string(),
     })
+    .insert_resource(ImageSettings {
+        default_sampler: ImageSampler::nearest_descriptor(),
+    })
     .add_plugins(DefaultPlugins)
     .add_plugin(FrameTimeDiagnosticsPlugin)
     .add_plugin(TiledCameraPlugin)
@@ -76,24 +80,13 @@ pub fn main() -> Result<()> {
 #[derive(Component)]
 struct PixelFont;
 
-#[derive(Component)]
-pub struct TiledCamera {
-    pub width: usize,
-    pub height: usize,
-}
-
 fn setup(
     mut commands: Commands,
     mut fonts: ResMut<Assets<Font>>,
     mut egui_ctx: ResMut<EguiContext>,
 ) {
     use bevy_tiled_camera::*;
-    commands
-        .spawn_bundle(TiledCameraBundle::new().with_target_resolution(1, [320, 240]))
-        .insert(TiledCamera {
-            width: 320,
-            height: 240,
-        });
+    commands.spawn_bundle(TiledCameraBundle::pixel_cam([320, 240]).with_pixels_per_tile([1, 1]));
 
     let ctx = egui_ctx.ctx_mut();
 
@@ -248,7 +241,7 @@ fn process_double_click(
     mut window_control_event: EventWriter<WindowControlEvent>,
 ) {
     for ev in mouse_button_event.iter() {
-        if ev.button == MouseButton::Left && ev.state == ElementState::Pressed {
+        if ev.button == MouseButton::Left && ev.state == ButtonState::Pressed {
             let cur = time.seconds_since_startup();
             let diff = cur - last_clicked.0;
 
@@ -305,14 +298,13 @@ fn setup_fps_system(mut commands: Commands, pixel_font: Query<&Handle<Font>, Wit
 
     commands
         .spawn_bundle(Text2dBundle {
-            text: Text::with_section(
+            text: Text::from_section(
                 "",
                 TextStyle {
                     font: pixel_font.clone(),
                     font_size: 16.0,
                     color: Color::WHITE,
                 },
-                TextAlignment::default(),
             ),
             transform: Transform::from_xyz(0.0, 0.0, 2.0),
             ..Default::default()
@@ -437,14 +429,13 @@ fn message_event_system(
 
         commands
             .spawn_bundle(Text2dBundle {
-                text: Text::with_section(
+                text: Text::from_section(
                     msg,
                     TextStyle {
                         font: pixel_font.clone(),
                         font_size: 16.0,
                         color: Color::WHITE,
                     },
-                    TextAlignment::default(),
                 ),
                 transform: Transform::from_xyz(
                     -screen_width / 2.0 + 2.0,

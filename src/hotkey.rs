@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 use enum_iterator::{all, Sequence};
-use meru_interface::KeyAssign;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
@@ -8,7 +7,7 @@ use crate::{
     app::{AppState, ShowMessage, UiState, WindowControlEvent},
     config::Config,
     core::Emulator,
-    input::InputState,
+    input::{InputState, KeyConfig},
 };
 
 pub struct HotKeyPlugin;
@@ -39,28 +38,24 @@ pub enum HotKey {
 
 impl Display for HotKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                HotKey::Reset => "Reset",
-                HotKey::Turbo => "Turbo",
-                HotKey::StateSave => "State Save",
-                HotKey::StateLoad => "State Load",
-                HotKey::NextSlot => "State Slot Next",
-                HotKey::PrevSlot => "State Slot Prev",
-                HotKey::Rewind => "Start Rewindng",
-                HotKey::Menu => "Enter/Leave Menu",
-                HotKey::FullScreen => "Fullsceen",
-                HotKey::ScaleUp => "Window Scale +",
-                HotKey::ScaleDown => "Window Scale -",
-            }
-        )
+        let s = match self {
+            HotKey::Reset => "Reset",
+            HotKey::Turbo => "Turbo",
+            HotKey::StateSave => "State Save",
+            HotKey::StateLoad => "State Load",
+            HotKey::NextSlot => "State Slot Next",
+            HotKey::PrevSlot => "State Slot Prev",
+            HotKey::Rewind => "Start Rewindng",
+            HotKey::Menu => "Enter/Leave Menu",
+            HotKey::FullScreen => "Fullsceen",
+            HotKey::ScaleUp => "Window Scale +",
+            HotKey::ScaleDown => "Window Scale -",
+        };
+        write!(f, "{s}")
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct HotKeys(Vec<(HotKey, KeyAssign)>);
+pub type HotKeys = KeyConfig<HotKey>;
 
 impl Default for HotKeys {
     fn default() -> Self {
@@ -91,33 +86,6 @@ impl Default for HotKeys {
     }
 }
 
-impl HotKeys {
-    pub fn key_assign(&self, hotkey: HotKey) -> Option<&KeyAssign> {
-        self.0.iter().find(|(h, _)| *h == hotkey).map(|(_, k)| k)
-    }
-
-    pub fn key_assign_mut(&mut self, hotkey: HotKey) -> Option<&mut KeyAssign> {
-        self.0
-            .iter_mut()
-            .find(|(h, _)| *h == hotkey)
-            .map(|(_, k)| k)
-    }
-
-    pub fn just_pressed(&self, hotkey: HotKey, input_state: &InputState<'_>) -> bool {
-        self.0
-            .iter()
-            .find(|r| r.0 == hotkey)
-            .map_or(false, |r| r.1.just_pressed(input_state))
-    }
-
-    pub fn pressed(&self, hotkey: HotKey, input_state: &InputState<'_>) -> bool {
-        self.0
-            .iter()
-            .find(|r| r.0 == hotkey)
-            .map_or(false, |r| r.1.pressed(input_state))
-    }
-}
-
 pub struct IsTurbo(pub bool);
 
 fn check_hotkey(
@@ -131,13 +99,13 @@ fn check_hotkey(
     let input_state = InputState::new(&input_keycode, &input_gamepad_button, &input_gamepad_axis);
 
     for hotkey in all::<HotKey>() {
-        if config.hotkeys.just_pressed(hotkey, &input_state) {
+        if config.hotkeys.just_pressed(&hotkey, &input_state) {
             writer.send(hotkey);
         }
     }
 
     is_turbo.0 = config.hotkeys.pressed(
-        HotKey::Turbo,
+        &HotKey::Turbo,
         &InputState::new(&input_keycode, &input_gamepad_button, &input_gamepad_axis),
     );
 }

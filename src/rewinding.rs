@@ -185,8 +185,8 @@ fn rewinding_system(
         return;
     }
 
-    let left = config.system_keys.pressed(SystemKey::Left, &input_state);
-    let right = config.system_keys.pressed(SystemKey::Right, &input_state);
+    let left = config.system_keys.pressed(&SystemKey::Left, &input_state);
+    let right = config.system_keys.pressed(&SystemKey::Right, &input_state);
 
     if left || right {
         let mut do_move = false;
@@ -255,11 +255,14 @@ fn rewinding_system(
         }
     }
 
-    if config.system_keys.just_pressed(SystemKey::Ok, &input_state) {
+    if config
+        .system_keys
+        .just_pressed(&SystemKey::Ok, &input_state)
+    {
         rewinding_state.load_pos = Some(rewinding_state.pos);
     } else if config
         .system_keys
-        .just_pressed(SystemKey::Cancel, &input_state)
+        .just_pressed(&SystemKey::Cancel, &input_state)
     {
         rewinding_state.load_pos = Some(emulator.auto_saved_states.len() - 1);
     }

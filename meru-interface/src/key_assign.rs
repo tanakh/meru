@@ -169,10 +169,30 @@ pub enum KeyCode {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GamepadButton(pub Gamepad, pub GamepadButtonType);
+pub struct GamepadButton {
+    pub gamepad: Gamepad,
+    pub button_type: GamepadButtonType,
+}
+
+impl GamepadButton {
+    pub fn new(gamepad: Gamepad, button_type: GamepadButtonType) -> Self {
+        Self {
+            gamepad,
+            button_type,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Gamepad(pub usize);
+pub struct Gamepad {
+    pub id: usize,
+}
+
+impl Gamepad {
+    pub fn new(id: usize) -> Self {
+        Self { id }
+    }
+}
 
 #[derive(PartialEq, Eq, Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum GamepadButtonType {
@@ -197,8 +217,17 @@ pub enum GamepadButtonType {
     DPadRight,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GamepadAxis(pub Gamepad, pub GamepadAxisType);
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GamepadAxis {
+    pub gamepad: Gamepad,
+    pub axis_type: GamepadAxisType,
+}
+
+impl GamepadAxis {
+    pub fn new(gamepad: Gamepad, axis_type: GamepadAxisType) -> Self {
+        Self { gamepad, axis_type }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GamepadAxisType {
@@ -208,8 +237,6 @@ pub enum GamepadAxisType {
     RightStickX,
     RightStickY,
     RightZ,
-    DPadX,
-    DPadY,
 }
 
 #[derive(PartialEq, Eq, Default, Clone, Debug, Serialize, Deserialize)]
@@ -237,81 +264,74 @@ pub enum GamepadAxisDir {
     Neg,
 }
 
-pub struct ToStringKey<T>(pub T);
-
-impl Display for ToStringKey<&KeyCode> {
+impl Display for KeyCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.0)
+        write!(f, "{:?}", self)
     }
 }
 
-impl Display for ToStringKey<&GamepadButton> {
+impl Display for GamepadButton {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let GamepadButton(gamepad, button) = &self.0;
-        write!(f, "Pad{}.{}", gamepad.0, ToStringKey(button))
+        write!(f, "Pad{}.{}", self.gamepad.id, self.button_type)
     }
 }
 
-impl Display for ToStringKey<&GamepadButtonType> {
+impl Display for GamepadButtonType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use GamepadButtonType::*;
-        write!(
-            f,
-            "{}",
-            match self.0 {
-                South => "S",
-                East => "E",
-                North => "N",
-                West => "W",
-                C => "C",
-                Z => "Z",
-                LeftTrigger => "LB",
-                LeftTrigger2 => "LT",
-                RightTrigger => "RB",
-                RightTrigger2 => "RT",
-                Select => "Select",
-                Start => "Start",
-                Mode => "Mode",
-                LeftThumb => "LS",
-                RightThumb => "RS",
-                DPadUp => "DPadUp",
-                DPadDown => "DPadDown",
-                DPadLeft => "DPadLeft",
-                DPadRight => "DPadRight",
-            }
-        )
+        let s = match self {
+            South => "S",
+            East => "E",
+            North => "N",
+            West => "W",
+            C => "C",
+            Z => "Z",
+            LeftTrigger => "LB",
+            LeftTrigger2 => "LT",
+            RightTrigger => "RB",
+            RightTrigger2 => "RT",
+            Select => "Select",
+            Start => "Start",
+            Mode => "Mode",
+            LeftThumb => "LS",
+            RightThumb => "RS",
+            DPadUp => "DPadUp",
+            DPadDown => "DPadDown",
+            DPadLeft => "DPadLeft",
+            DPadRight => "DPadRight",
+        };
+        write!(f, "{s}")
     }
 }
 
-impl Display for ToStringKey<(&GamepadAxis, &GamepadAxisDir)> {
+impl Display for GamepadAxis {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let (axis, dir) = &self.0;
-        let GamepadAxis(gamepad, axis) = axis;
-        let dir = match dir {
+        write!(f, "Pad{}.{}", self.gamepad.id, self.axis_type)
+    }
+}
+
+impl Display for GamepadAxisDir {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
             GamepadAxisDir::Pos => "+",
             GamepadAxisDir::Neg => "-",
         };
-        write!(f, "Pad{}.{}{dir}", gamepad.0, ToStringKey(axis))
+        write!(f, "{s}")
     }
 }
 
-impl Display for ToStringKey<&GamepadAxisType> {
+impl Display for GamepadAxisType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use GamepadAxisType::*;
-        write!(
-            f,
-            "{}",
-            match self.0 {
-                LeftStickX => "LX",
-                LeftStickY => "LY",
-                LeftZ => "LZ",
-                RightStickX => "RX",
-                RightStickY => "RY",
-                RightZ => "RZ",
-                DPadX => "DPadX",
-                DPadY => "DPadY",
-            }
-        )
+        let s = match self {
+            LeftStickX => "LX",
+            LeftStickY => "LY",
+            LeftZ => "LZ",
+            RightStickX => "RX",
+            RightStickY => "RY",
+            RightZ => "RZ",
+        };
+        write!(f, "{s}")
     }
 }
 
@@ -332,9 +352,9 @@ impl Display for MultiKey {
 impl Display for SingleKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SingleKey::KeyCode(kc) => write!(f, "{}", ToStringKey(kc)),
-            SingleKey::GamepadButton(button) => write!(f, "{}", ToStringKey(button)),
-            SingleKey::GamepadAxis(axis, dir) => write!(f, "{}", ToStringKey((axis, dir))),
+            SingleKey::KeyCode(kc) => write!(f, "{kc}"),
+            SingleKey::GamepadButton(button) => write!(f, "{button}"),
+            SingleKey::GamepadAxis(axis, dir) => write!(f, "{axis}{dir}"),
         }
     }
 }
@@ -460,8 +480,8 @@ pub use keycode;
 macro_rules! pad_button {
     ($id:literal, $button:ident) => {
         $crate::key_assign::KeyAssign(vec![$crate::key_assign::MultiKey(vec![
-            $crate::key_assign::SingleKey::GamepadButton($crate::key_assign::GamepadButton(
-                $crate::key_assign::Gamepad($id),
+            $crate::key_assign::SingleKey::GamepadButton($crate::key_assign::GamepadButton::new(
+                $crate::key_assign::Gamepad::new($id),
                 $crate::key_assign::GamepadButtonType::$button,
             )),
         ])])

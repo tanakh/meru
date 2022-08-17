@@ -20,24 +20,24 @@ tgbr = { git = "https://github.com/tanakh/tgbr", version = "0.2.1" }
 tgba = { git = "https://github.com/tanakh/tgba", version = "0.1.0" }
 super-sabicom = { path = "../super-sabicom", version = "0.1.0" }
 
-anyhow = "1.0.58"
-bevy = { version = "0.7", features = ["serialize"] }
-bevy_easings = "0.7"
-bevy_egui = "0.14"
-bevy_tiled_camera = "0.3.1"
+anyhow = "1.0.61"
+bevy = { version = "0.8.0", features = ["serialize"] }
+bevy_easings = "0.8.1"
+bevy_egui = "0.15.1"
+bevy_tiled_camera = "0.4.0"
 chrono = "0.4.19"
-compress-tools = "0.12.2"
+compress-tools = "0.13.0"
 directories = "4.0.1"
 enum-iterator = "1.1.2"
-image = { version = "0.24.2", default-features = false, features = ["ico"] }
+image = { version = "0.24.3", default-features = false, features = ["ico"] }
 log = "0.4.17"
-rfd = "0.9"
+rfd = "0.10.0"
 rodio = "0.15.0"
-serde = { version = "1.0.136", features = ["derive"] }
-serde_json = "1.0.81"
-thiserror = "1.0.31"
+serde = { version = "1.0.143", features = ["derive"] }
+serde_json = "1.0.83"
+thiserror = "1.0.32"
 tempfile = "3.3.0"
-winit = "0.26.1"
+winit = "0.26"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"

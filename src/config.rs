@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use directories::ProjectDirs;
 use enum_iterator::Sequence;
 use log::info;
-use meru_interface::{EmulatorCore, KeyAssign, KeyConfig};
+use meru_interface::EmulatorCore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -12,7 +12,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{core::Emulator, hotkey::HotKeys, input::InputState};
+use crate::{core::Emulator, hotkey::HotKeys, input::KeyConfig};
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Serialize, Deserialize, Sequence)]
 pub enum SystemKey {
@@ -26,23 +26,19 @@ pub enum SystemKey {
 
 impl Display for SystemKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                SystemKey::Up => "Up",
-                SystemKey::Down => "Down",
-                SystemKey::Left => "Left",
-                SystemKey::Right => "Right",
-                SystemKey::Ok => "Ok",
-                SystemKey::Cancel => "Cancel",
-            }
-        )
+        let s = match self {
+            SystemKey::Up => "Up",
+            SystemKey::Down => "Down",
+            SystemKey::Left => "Left",
+            SystemKey::Right => "Right",
+            SystemKey::Ok => "Ok",
+            SystemKey::Cancel => "Cancel",
+        };
+        write!(f, "{s}")
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct SystemKeys(Vec<(SystemKey, KeyAssign)>);
+pub type SystemKeys = KeyConfig<SystemKey>;
 
 impl Default for SystemKeys {
     fn default() -> Self {
@@ -56,56 +52,6 @@ impl Default for SystemKeys {
             (Ok, any!(keycode!(Return), pad_button!(0, East))),
             (Cancel, any!(keycode!(Back), pad_button!(0, South))),
         ])
-    }
-}
-
-impl SystemKeys {
-    pub fn key_assign(&self, system_key: SystemKey) -> Option<&KeyAssign> {
-        self.0
-            .iter()
-            .find(|(h, _)| *h == system_key)
-            .map(|(_, k)| k)
-    }
-
-    pub fn key_assign_mut(&mut self, system_key: SystemKey) -> Option<&mut KeyAssign> {
-        self.0
-            .iter_mut()
-            .find(|(h, _)| *h == system_key)
-            .map(|(_, k)| k)
-    }
-
-    pub fn insert_keycode(&mut self, system_key: SystemKey, key_code: meru_interface::KeyCode) {
-        if let Some(key_assign) = self.key_assign_mut(system_key) {
-            key_assign.insert_keycode(key_code);
-        } else {
-            use meru_interface::key_assign::*;
-            self.0
-                .push((system_key, SingleKey::KeyCode(key_code).into()));
-        }
-    }
-
-    pub fn insert_gamepad(&mut self, system_key: SystemKey, button: meru_interface::GamepadButton) {
-        if let Some(key_assign) = self.key_assign_mut(system_key) {
-            key_assign.insert_gamepad(button);
-        } else {
-            use meru_interface::key_assign::*;
-            self.0
-                .push((system_key, SingleKey::GamepadButton(button).into()));
-        }
-    }
-
-    pub fn just_pressed(&self, system_key: SystemKey, input_state: &InputState<'_>) -> bool {
-        self.0
-            .iter()
-            .find(|r| r.0 == system_key)
-            .map_or(false, |r| r.1.just_pressed(input_state))
-    }
-
-    pub fn pressed(&self, system_key: SystemKey, input_state: &InputState<'_>) -> bool {
-        self.0
-            .iter()
-            .find(|r| r.0 == system_key)
-            .map_or(false, |r| r.1.pressed(input_state))
     }
 }
 
@@ -124,7 +70,7 @@ pub struct Config {
     #[serde(default)]
     core_configs: BTreeMap<String, Value>,
     #[serde(default)]
-    key_configs: BTreeMap<String, KeyConfig>,
+    key_configs: BTreeMap<String, meru_interface::KeyConfig>,
 }
 
 impl Default for Config {
@@ -148,7 +94,7 @@ impl Default for Config {
             save_dir,
             show_fps: false,
             frame_skip_on_turbo: 4,
-            scaling: 4,
+            scaling: 2,
             auto_state_save_rate: 128 * 1024,          // 128KB/s
             auto_state_save_limit: 1024 * 1024 * 1024, // 1GB
             minimum_auto_save_span: 60,
@@ -184,13 +130,13 @@ impl Config {
         );
     }
 
-    pub fn key_config(&mut self, abbrev: &str) -> &KeyConfig {
+    pub fn key_config(&mut self, abbrev: &str) -> &meru_interface::KeyConfig {
         self.key_configs
             .entry(abbrev.to_string())
             .or_insert_with(|| Emulator::default_key_config(abbrev))
     }
 
-    pub fn set_key_config(&mut self, abbrev: &str, key_config: KeyConfig) {
+    pub fn set_key_config(&mut self, abbrev: &str, key_config: meru_interface::KeyConfig) {
         self.key_configs.insert(abbrev.to_string(), key_config);
     }
 }

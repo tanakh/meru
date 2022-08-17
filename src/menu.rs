@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContext};
 use enum_iterator::all;
-use meru_interface::{MultiKey, SingleKey, ToStringKey, Ui};
+use meru_interface::{MultiKey, SingleKey, Ui};
 use std::path::PathBuf;
 
 use crate::{
@@ -10,7 +10,7 @@ use crate::{
     core::{Emulator, ARCHIVE_EXTENSIONS},
     file::state_date,
     hotkey::{HotKey, HotKeys},
-    input::{to_meru_gamepad_button, to_meru_keycode},
+    input::ConvertInput,
 };
 
 pub const MENU_WIDTH: usize = 1280;
@@ -560,10 +560,10 @@ fn tab_hotkey(
         if *hotkey_select != 0 {
             let mut current_pushed = vec![];
             for r in key_code_input.get_pressed() {
-                current_pushed.push(SingleKey::KeyCode(to_meru_keycode(r)));
+                current_pushed.push(SingleKey::KeyCode(ConvertInput(*r).into()));
             }
             for r in gamepad_button_input.get_pressed() {
-                current_pushed.push(SingleKey::GamepadButton(to_meru_gamepad_button(r)));
+                current_pushed.push(SingleKey::GamepadButton(ConvertInput(*r).into()));
             }
 
             if constructing_hotkey.is_none() {
@@ -593,7 +593,7 @@ fn tab_hotkey(
             ui.label(hotkey.to_string());
 
             ui.horizontal(|ui| {
-                let key_assign = config.hotkeys.key_assign_mut(hotkey).unwrap();
+                let key_assign = config.hotkeys.key_assign_mut(&hotkey).unwrap();
                 for i in 0..key_assign.0.len() {
                     let key_str = if *hotkey_select == ix {
                         if hotkey_determined {
@@ -677,78 +677,80 @@ fn tab_system_key(
     });
 
     ui.group(|ui| {
-        egui::Grid::new("key_config")
+        let grid = egui::Grid::new("key_config")
             .num_columns(2)
             .spacing([40.0, 4.0])
-            .striped(true)
-            .show(ui, |ui| {
-                ui.label("Button");
-                ui.label("Assignment");
-                ui.end_row();
+            .striped(true);
 
-                ui.separator();
-                ui.separator();
-                ui.end_row();
+        grid.show(ui, |ui| {
+            ui.label("Button");
+            ui.label("Assignment");
+            ui.end_row();
 
-                let mut changed: Option<usize> = None;
+            ui.separator();
+            ui.separator();
+            ui.end_row();
 
-                match system_key_tab {
-                    ControllerTab::Keyboard => {
-                        for (ix, key) in all::<SystemKey>().enumerate() {
-                            ui.label(key.to_string());
+            let mut changed: Option<usize> = None;
 
-                            let assign = config.system_keys.key_assign_mut(key);
+            match system_key_tab {
+                ControllerTab::Keyboard => {
+                    for (ix, key) in all::<SystemKey>().enumerate() {
+                        ui.label(key.to_string());
 
-                            let assign_str = assign
-                                .and_then(|r| r.extract_keycode())
-                                .map_or_else(|| "".to_string(), |k| format!("{k:?}"));
+                        let assign = config.system_keys.key_assign_mut(&key);
 
-                            ui.selectable_value(system_key_ix, ix, assign_str)
-                                .on_hover_text("Click and type the key you want to assign");
+                        let assign_str = assign
+                            .and_then(|r| r.extract_keycode())
+                            .map_or_else(|| "".to_string(), |k| format!("{k:?}"));
 
-                            if *system_key_ix == ix {
-                                if let Some(kc) = key_code_input.get_just_pressed().next() {
-                                    config.system_keys.insert_keycode(key, to_meru_keycode(kc));
-                                    changed = Some(ix);
-                                }
+                        ui.selectable_value(system_key_ix, ix, assign_str)
+                            .on_hover_text("Click and type the key you want to assign");
+
+                        if *system_key_ix == ix {
+                            if let Some(kc) = key_code_input.get_just_pressed().next() {
+                                config
+                                    .system_keys
+                                    .insert_keycode(&key, ConvertInput(*kc).into());
+                                changed = Some(ix);
                             }
-
-                            ui.end_row();
                         }
-                    }
 
-                    ControllerTab::Gamepad => {
-                        for (ix, key) in all::<SystemKey>().enumerate() {
-                            ui.label(key.to_string());
-
-                            let assign = config.system_keys.key_assign_mut(key);
-
-                            let assign_str = assign
-                                .and_then(|r| r.extract_gamepad())
-                                .map_or_else(|| "".to_string(), |k| ToStringKey(&k).to_string());
-
-                            ui.selectable_value(system_key_ix, ix, assign_str)
-                                .on_hover_text("Click and type the key you want to assign");
-
-                            if *system_key_ix == ix {
-                                if let Some(button) = gamepad_button_input.get_just_pressed().next()
-                                {
-                                    config
-                                        .system_keys
-                                        .insert_gamepad(key, to_meru_gamepad_button(button));
-                                    changed = Some(ix);
-                                }
-                            }
-
-                            ui.end_row();
-                        }
+                        ui.end_row();
                     }
                 }
 
-                if let Some(ix) = changed {
-                    *system_key_ix = ix + 1;
+                ControllerTab::Gamepad => {
+                    for (ix, key) in all::<SystemKey>().enumerate() {
+                        ui.label(key.to_string());
+
+                        let assign = config.system_keys.key_assign_mut(&key);
+
+                        let assign_str = assign
+                            .and_then(|r| r.extract_gamepad())
+                            .map_or_else(|| "".to_string(), |k| k.to_string());
+
+                        ui.selectable_value(system_key_ix, ix, assign_str)
+                            .on_hover_text("Click and type the key you want to assign");
+
+                        if *system_key_ix == ix {
+                            if let Some(button) = gamepad_button_input.get_just_pressed().next() {
+                                config
+                                    .system_keys
+                                    .insert_gamepad(&key, ConvertInput(*button).into());
+                                changed = Some(ix);
+                            }
+                        }
+
+                        ui.end_row();
+                    }
                 }
-            });
+            }
+
+            if let Some(ix) = changed {
+                *system_key_ix = ix + 1;
+            }
+        });
     });
 
     if ui.button("Reset to default").clicked() {
@@ -790,80 +792,80 @@ fn controller_ui(
     });
 
     ui.group(|ui| {
-        egui::Grid::new("key_config")
+        let grid = egui::Grid::new("key_config")
             .num_columns(2)
             .spacing([40.0, 4.0])
-            .striped(true)
-            .show(ui, |ui| {
-                ui.label("Button");
-                ui.label("Assignment");
-                ui.end_row();
+            .striped(true);
 
-                ui.separator();
-                ui.separator();
-                ui.end_row();
+        grid.show(ui, |ui| {
+            ui.label("Button");
+            ui.label("Assignment");
+            ui.end_row();
 
-                let mut changed: Option<usize> = None;
+            ui.separator();
+            ui.separator();
+            ui.end_row();
 
-                match controller_tab {
-                    ControllerTab::Keyboard => {
-                        for (ix, (name, assign)) in key_config.controllers[*controller_ix]
-                            .iter_mut()
-                            .enumerate()
-                        {
-                            let ix = ix + 1;
-                            ui.label(name.clone());
-                            let assign_str = assign
-                                .extract_keycode()
-                                .map_or_else(|| "".to_string(), |k| format!("{k:?}"));
+            let mut changed: Option<usize> = None;
 
-                            ui.selectable_value(controller_button_ix, ix, assign_str)
-                                .on_hover_text("Click and type the key you want to assign");
+            match controller_tab {
+                ControllerTab::Keyboard => {
+                    for (ix, (name, assign)) in key_config.controllers[*controller_ix]
+                        .iter_mut()
+                        .enumerate()
+                    {
+                        let ix = ix + 1;
+                        ui.label(name.clone());
+                        let assign_str = assign
+                            .extract_keycode()
+                            .map_or_else(|| "".to_string(), |k| format!("{k:?}"));
 
-                            if *controller_button_ix == ix {
-                                if let Some(kc) = key_code_input.get_just_pressed().next() {
-                                    assign.insert_keycode(to_meru_keycode(kc));
-                                    changed = Some(ix);
-                                }
+                        ui.selectable_value(controller_button_ix, ix, assign_str)
+                            .on_hover_text("Click and type the key you want to assign");
+
+                        if *controller_button_ix == ix {
+                            if let Some(kc) = key_code_input.get_just_pressed().next() {
+                                assign.insert_keycode(ConvertInput(*kc).into());
+                                changed = Some(ix);
                             }
-
-                            ui.end_row();
                         }
-                    }
 
-                    ControllerTab::Gamepad => {
-                        for (ix, (name, assign)) in key_config.controllers[*controller_ix]
-                            .iter_mut()
-                            .enumerate()
-                        {
-                            let ix = ix + 1;
-                            ui.label(name.clone());
-
-                            let assign_str = assign
-                                .extract_gamepad()
-                                .map_or_else(|| "".to_string(), |k| ToStringKey(&k).to_string());
-
-                            ui.selectable_value(controller_button_ix, ix, assign_str)
-                                .on_hover_text("Click and press the button you want to assign");
-
-                            if *controller_button_ix == ix {
-                                if let Some(button) = gamepad_button_input.get_just_pressed().next()
-                                {
-                                    assign.insert_gamepad(to_meru_gamepad_button(button));
-                                    changed = Some(ix);
-                                }
-                            }
-
-                            ui.end_row();
-                        }
+                        ui.end_row();
                     }
                 }
 
-                if let Some(ix) = changed {
-                    *controller_button_ix = ix + 1;
-                    config.set_key_config(core, key_config);
+                ControllerTab::Gamepad => {
+                    for (ix, (name, assign)) in key_config.controllers[*controller_ix]
+                        .iter_mut()
+                        .enumerate()
+                    {
+                        let ix = ix + 1;
+                        ui.label(name.clone());
+
+                        let assign_str = assign
+                            .extract_gamepad()
+                            .map_or_else(|| "".to_string(), |k| k.to_string());
+
+                        ui.selectable_value(controller_button_ix, ix, assign_str)
+                            .on_hover_text("Click and press the button you want to assign");
+
+                        if *controller_button_ix == ix {
+                            if let Some(button) = gamepad_button_input.get_just_pressed().next() {
+                                assign.insert_gamepad(ConvertInput(*button).into());
+                                changed = Some(ix);
+                            }
+                        }
+
+                        ui.end_row();
+                    }
                 }
-            });
+            }
+
+            if let Some(ix) = changed {
+                *controller_button_ix = ix + 1;
+                config.set_key_config(core, key_config);
+            }
+        });
     });
 
     if ui.button("Reset to default").clicked() {
@@ -940,7 +942,7 @@ pub struct EguiUi<'a>(&'a mut egui::Ui);
 
 impl<'a> Ui for EguiUi<'a> {
     fn horizontal(&mut self, f: impl FnOnce(&mut Self)) {
-        self.0.horizontal(|ui| {
+        self.0.horizontal(move |ui| {
             // FIXME
             f(&mut EguiUi(unsafe {
                 let p: *mut egui::Ui = ui;
@@ -951,6 +953,7 @@ impl<'a> Ui for EguiUi<'a> {
 
     fn enabled(&mut self, enabled: bool, f: impl FnOnce(&mut Self)) {
         self.0.add_enabled_ui(enabled, |ui| {
+            // FIXME
             f(&mut EguiUi(unsafe {
                 let p: *mut egui::Ui = ui;
                 &mut *p

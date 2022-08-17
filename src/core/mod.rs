@@ -6,7 +6,7 @@ use bevy::{
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
-use bevy_tiled_camera::TiledCameraBundle;
+use bevy_tiled_camera::{TiledCamera, TiledCameraBundle};
 use meru_interface::{
     AudioBuffer, AudioSample, ConfigUi, CoreInfo, EmulatorCore, FrameBuffer, InputData, KeyConfig,
 };
@@ -19,7 +19,7 @@ use std::{
 };
 
 use crate::{
-    app::{AppState, ScreenSprite, TiledCamera, WindowControlEvent},
+    app::{AppState, ScreenSprite, WindowControlEvent},
     config::Config,
     file::{load_backup, load_state, save_backup, save_state},
     hotkey,
@@ -360,36 +360,6 @@ impl Emulator {
     }
 }
 
-fn frame_buffer_to_image(frame_buffer: &FrameBuffer) -> Image {
-    let width = frame_buffer.width;
-    let height = frame_buffer.height;
-
-    let mut data = vec![0; width * height * 4];
-
-    for y in 0..height {
-        for x in 0..width {
-            let ix = y * width + x;
-            let pixel = &mut data[ix * 4..ix * 4 + 4];
-            let c = &frame_buffer.buffer[ix];
-            pixel[0] = c.r;
-            pixel[1] = c.g;
-            pixel[2] = c.b;
-            pixel[3] = 0xff;
-        }
-    }
-
-    Image::new(
-        Extent3d {
-            width: width as u32,
-            height: height as u32,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        data,
-        TextureFormat::Rgba8UnormSrgb,
-    )
-}
-
 pub struct EmulatorPlugin;
 
 impl Plugin for EmulatorPlugin {
@@ -537,7 +507,7 @@ impl rodio::Source for AudioSource {
 fn emulator_system(
     mut commands: Commands,
     screen: Res<GameScreen>,
-    camera: Query<(Entity, &TiledCamera), With<TiledCamera>>,
+    camera: Query<(Entity, &TiledCamera)>,
     config: Res<Config>,
     mut emulator: ResMut<Emulator>,
     mut images: ResMut<Assets<Image>>,
@@ -624,24 +594,38 @@ fn emulator_system(
         let camera = camera.single();
         let image = images.get(&screen.0).unwrap();
         let image_size = image.size();
-        let width = image_size[0] as usize;
-        let height = image_size[1] as usize;
+        let width = image_size[0] as u32;
+        let height = image_size[1] as u32;
 
-        if (camera.1.width, camera.1.height) != (width, height) {
+        if (camera.1.tile_count.x, camera.1.tile_count.y) != (width, height) {
             commands.entity(camera.0).despawn();
-
-            commands
-                .spawn_bundle(
-                    TiledCameraBundle::new()
-                        .with_target_resolution(1, [width as u32, height as u32]),
-                )
-                .insert(TiledCamera { width, height });
+            commands.spawn_bundle(
+                TiledCameraBundle::pixel_cam([width, height]).with_pixels_per_tile([1, 1]),
+            );
         }
     }
 
     if emulator.prev_backup_saved_frame + 60 * 60 <= emulator.frames {
         emulator.save_backup().unwrap();
     }
+}
+
+fn frame_buffer_to_image(frame_buffer: &FrameBuffer) -> Image {
+    let width = frame_buffer.width;
+    let height = frame_buffer.height;
+
+    let mut image = Image::new_fill(
+        Extent3d {
+            width: width as u32,
+            height: height as u32,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &[0, 0, 0, 0],
+        TextureFormat::Rgba8UnormSrgb,
+    );
+    copy_frame_buffer(&mut image, frame_buffer);
+    image
 }
 
 fn copy_frame_buffer(image: &mut Image, frame_buffer: &FrameBuffer) {
