@@ -30,6 +30,9 @@ impl FrameBuffer {
     }
 
     pub fn resize(&mut self, width: usize, height: usize) {
+        if (width, height) == (self.width, self.height) {
+            return;
+        }
         self.width = width;
         self.height = height;
         self.buffer.resize(width * height, Pixel::default());
