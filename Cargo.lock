@@ -122,9 +122,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.62"
+version = "1.0.59"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1485d4d2cc45e7b201ee3767015c96faa5904387c9d87c6efdd0fb511f12d305"
+checksum = "c91f1f46651137be86f3a2b9a8359f9ab421d04d941c62b5982e1ca21113adf9"
 
 [[package]]
 name = "approx"
@@ -978,24 +978,24 @@ dependencies = [
 
 [[package]]
 name = "bumpalo"
-version = "3.10.0"
+version = "3.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37ccbd214614c6783386c1af30caf03192f17891059cecc394b4fb119e363de3"
+checksum = "c1ad822118d20d2c234f427000d5acc36eabe1e29a348c89b63dd60b13f28e5d"
 
 [[package]]
 name = "bytemuck"
-version = "1.12.0"
+version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44f8cb64b4147a528e1e9e77583739e683541973295b35f3bd7e78d42c5971fd"
+checksum = "2f5715e491b5a1598fc2bef5a606847b5dc1d48ea625bd3c02c00de8285591da"
 dependencies = [
  "bytemuck_derive",
 ]
 
 [[package]]
 name = "bytemuck_derive"
-version = "1.2.0"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "339cdf1eb047d1c96cb8be64f4bc28975821222ec1736edfa06e140cf18d0064"
+checksum = "1b9e1f5fa78f69496407a27ae9ed989e3c3b072310286f5ef385525e4cbc24a9"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1574,9 +1574,9 @@ dependencies = [
 
 [[package]]
 name = "either"
-version = "1.7.0"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f107b87b6afc2a64fd13cac55fe06d6c8859f12d4b14cbcdd2c67d0976781be"
+checksum = "90e5c1c8368803113bf0c9584fc495a58b86dc8a29edbf8fe877d21d9507e797"
 
 [[package]]
 name = "emath"
@@ -2536,7 +2536,7 @@ dependencies = [
  "enum-iterator",
  "image 0.24.3",
  "log",
- "meru-interface",
+ "meru-interface 0.2.0",
  "rfd",
  "rodio",
  "serde",
@@ -2553,6 +2553,14 @@ dependencies = [
 [[package]]
 name = "meru-interface"
 version = "0.2.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "meru-interface"
+version = "0.2.0"
+source = "git+https://github.com/tanakh/meru/#8e41b898ebc25c66e2661fcabe7f2ab18ba9dc81"
 dependencies = [
  "serde",
 ]
@@ -3592,7 +3600,7 @@ dependencies = [
  "educe",
  "encoding_rs",
  "log",
- "meru-interface",
+ "meru-interface 0.2.0",
  "modular-bitfield",
  "serde",
  "super-sabicom-macro",
@@ -3683,7 +3691,6 @@ dependencies = [
 [[package]]
 name = "tgba"
 version = "0.1.0"
-source = "git+https://github.com/tanakh/tgba#e04a9c3de5e9c25b7a38567471aca7cf089c2031"
 dependencies = [
  "ambassador",
  "anyhow",
@@ -3696,19 +3703,19 @@ dependencies = [
 
 [[package]]
 name = "tgbr"
-version = "0.2.1"
-source = "git+https://github.com/tanakh/tgbr#3eb075162da9551591d77ca21044d12a5261e315"
+version = "0.3.0"
 dependencies = [
  "ambassador",
- "anyhow",
  "bincode",
  "bitvec",
  "bytesize",
  "chrono",
  "log",
+ "meru-interface 0.2.0 (git+https://github.com/tanakh/meru/)",
  "serde",
  "serde_bytes",
  "sha2",
+ "thiserror",
 ]
 
 [[package]]

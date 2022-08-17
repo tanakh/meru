@@ -16,11 +16,11 @@ keywords = ["emulators"]
 
 [dependencies]
 meru-interface = { path = "meru-interface", version = "0.2.0" }
-tgbr = { git = "https://github.com/tanakh/tgbr", version = "0.2.1" }
-tgba = { git = "https://github.com/tanakh/tgba", version = "0.1.0" }
+tgbr = { path = "tgbr", version = "0.3.0" }
+tgba = { path = "tgba", version = "0.1.0" }
 super-sabicom = { path = "../super-sabicom", version = "0.1.0" }
 
-anyhow = "1.0.61"
+anyhow = "=1.0.59"
 bevy = { version = "0.8.0", features = ["serialize"] }
 bevy_easings = "0.8.1"
 bevy_egui = "0.15.1"
