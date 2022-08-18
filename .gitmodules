@@ -4,3 +4,9 @@
 [submodule "tgbr"]
 	path = tgbr
 	url = https://github.com/tanakh/tgbr
+[submodule "super-sabicom"]
+	path = super-sabicom
+	url = https://github.com/tanakh/super-sabicom
+[submodule "sabicom"]
+	path = sabicom
+	url = https://github.com/tanakh/sabicom

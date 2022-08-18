@@ -1,5 +1,3 @@
-pub mod gba;
-
 use anyhow::{anyhow, bail, Result};
 use bevy::{
     prelude::*,
@@ -7,7 +5,7 @@ use bevy::{
 };
 use bevy_tiled_camera::{TiledCamera, TiledCameraBundle};
 use meru_interface::{
-    AudioBuffer, AudioSample, ConfigUi, CoreInfo, EmulatorCore, FrameBuffer, InputData, KeyConfig,
+    AudioBuffer, ConfigUi, CoreInfo, EmulatorCore, FrameBuffer, InputData, KeyConfig,
 };
 use std::{
     collections::VecDeque,
@@ -69,7 +67,7 @@ macro_rules! def_emulator_cores {
 
 def_emulator_cores!(
     GameBoy(tgbr::GameBoy),
-    GameBoyAdvance(gba::GameBoyAdvanceCore),
+    GameBoyAdvance(tgba::Agb),
     Snes(super_sabicom::Snes),
 );
 

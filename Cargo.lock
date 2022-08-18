@@ -2560,7 +2560,7 @@ dependencies = [
 [[package]]
 name = "meru-interface"
 version = "0.2.0"
-source = "git+https://github.com/tanakh/meru/#8e41b898ebc25c66e2661fcabe7f2ab18ba9dc81"
+source = "git+https://github.com/tanakh/meru/#5766ec33d4355d6262c58e8ea370d36249a768fc"
 dependencies = [
  "serde",
 ]
@@ -3690,15 +3690,16 @@ dependencies = [
 
 [[package]]
 name = "tgba"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ambassador",
- "anyhow",
  "bincode",
  "bitvec",
  "log",
+ "meru-interface 0.2.0 (git+https://github.com/tanakh/meru/)",
  "serde",
  "serde_bytes",
+ "thiserror",
 ]
 
 [[package]]
