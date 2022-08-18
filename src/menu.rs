@@ -696,6 +696,8 @@ fn tab_system_key(
             match system_key_tab {
                 ControllerTab::Keyboard => {
                     for (ix, key) in all::<SystemKey>().enumerate() {
+                        let ix = ix + 1;
+
                         ui.label(key.to_string());
 
                         let assign = config.system_keys.key_assign_mut(&key);
@@ -722,6 +724,8 @@ fn tab_system_key(
 
                 ControllerTab::Gamepad => {
                     for (ix, key) in all::<SystemKey>().enumerate() {
+                        let ix = ix + 1;
+
                         ui.label(key.to_string());
 
                         let assign = config.system_keys.key_assign_mut(&key);
@@ -970,7 +974,7 @@ impl<'a> Ui for EguiUi<'a> {
     }
 
     fn file(&mut self, label: &str, value: &mut Option<PathBuf>, filter: &[(&str, &[&str])]) {
-        file_field(&mut self.0, label, value, filter, true);
+        file_field(self.0, label, value, filter, true);
     }
 
     fn color(&mut self, value: &mut meru_interface::Pixel) {
@@ -992,7 +996,7 @@ impl<'a> Ui for EguiUi<'a> {
         egui::ComboBox::from_label("")
             .width(250.0)
             .selected_text(selected_text)
-            .show_ui(&mut self.0, |ui| {
+            .show_ui(self.0, |ui| {
                 for (key, val) in choices {
                     ui.selectable_value(value, val.clone(), *key);
                 }
