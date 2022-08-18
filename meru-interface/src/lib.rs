@@ -76,6 +76,16 @@ impl Default for AudioBuffer {
     }
 }
 
+impl AudioBuffer {
+    pub fn new(sample_rate: u32, channels: u16) -> Self {
+        Self {
+            sample_rate,
+            channels,
+            samples: vec![],
+        }
+    }
+}
+
 #[derive(Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AudioSample {
     pub left: i16,
@@ -115,7 +125,7 @@ pub struct InputData {
 }
 
 pub trait ConfigUi {
-    fn ui<'a, 'b>(&'a mut self, ui: &'b mut impl Ui);
+    fn ui(&mut self, ui: &mut impl Ui);
 }
 
 pub trait Ui {
