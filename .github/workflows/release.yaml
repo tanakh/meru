@@ -25,6 +25,8 @@ jobs:
     steps:
       - name: Build | Checkout
         uses: actions/checkout@v2
+        with:
+          submodules: recursive
 
       - name: Build | Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
@@ -84,6 +86,7 @@ jobs:
       - name: Setup | Checkout
         uses: actions/checkout@v2.4.0
         with:
+          submodules: recursive
           fetch-depth: 0
 
       - name: Setup | Artifacts

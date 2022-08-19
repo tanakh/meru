@@ -9,6 +9,8 @@ jobs:
     steps:
       - name: Setup | Checkout
         uses: actions/checkout@v2
+        with:
+          submodules: recursive
 
       - name: Setup | Rust
         uses: actions-rs/toolchain@v1
@@ -27,6 +29,8 @@ jobs:
     steps:
       - name: Setup | Checkout
         uses: actions/checkout@v2
+        with:
+          submodules: recursive
 
       - name: Setup | Install dependencies
         run: sudo apt-get update && sudo apt install -y libarchive-dev libasound2-dev libudev-dev libgtk-3-dev
@@ -61,6 +65,8 @@ jobs:
     steps:
       - name: Setup | Checkout
         uses: actions/checkout@v2
+        with:
+          submodules: recursive
 
       - name: Setup | Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
@@ -92,6 +98,8 @@ jobs:
     steps:
       - name: Setup | Checkout
         uses: actions/checkout@v2
+        with:
+          submodules: recursive
 
       - name: Setup | Install dependencies
         run: sudo apt-get update && sudo apt install -y libarchive-dev libasound2-dev libudev-dev libgtk-3-dev
