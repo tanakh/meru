@@ -88,7 +88,7 @@ fn menu_event_system(
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone)]
 enum MenuTab {
     File,
     State,
@@ -133,6 +133,401 @@ impl Default for MenuState {
     }
 }
 
+impl MenuState {
+    fn tab_selector(&mut self, ui: &mut egui::Ui, emulator_loaded: bool) {
+        ui.heading("Main Menu");
+        ui.separator();
+
+        ui.selectable_value(&mut self.tab, MenuTab::File, "📁 File");
+
+        ui.add_enabled_ui(emulator_loaded, |ui| {
+            ui.selectable_value(&mut self.tab, MenuTab::State, "💾 State Save/Load");
+        });
+
+        ui.add_enabled_ui(emulator_loaded, |ui| {
+            ui.selectable_value(&mut self.tab, MenuTab::GameInfo, "ℹ Game Info");
+        });
+
+        ui.selectable_value(&mut self.tab, MenuTab::GeneralSetting, "🔧 General Setting");
+        ui.selectable_value(&mut self.tab, MenuTab::Graphics, "🖼 Graphics");
+
+        ui.collapsing("⚙ Core Setting", |ui| {
+            for core_info in Emulator::core_infos() {
+                ui.selectable_value(
+                    &mut self.tab,
+                    MenuTab::CoreSetting(core_info.abbrev.into()),
+                    core_info.system_name,
+                );
+            }
+        });
+        ui.collapsing("🎮 Controller Setting", |ui| {
+            for core_info in Emulator::core_infos() {
+                ui.selectable_value(
+                    &mut self.tab,
+                    MenuTab::ControllerSetting(core_info.abbrev.into()),
+                    core_info.system_name,
+                );
+            }
+        });
+
+        ui.selectable_value(&mut self.tab, MenuTab::HotKey, "⌨ Hotkey");
+        ui.selectable_value(&mut self.tab, MenuTab::SystemKey, "💻 System Key");
+    }
+
+    fn tab_controller(
+        &mut self,
+        ui: &mut egui::Ui,
+        config: &mut Config,
+        core: &str,
+        key_code_input: &Input<KeyCode>,
+        gamepad_button_input: &Input<GamepadButton>,
+    ) {
+        let mut key_config = config.key_config(core).clone();
+
+        if self.controller_ix >= key_config.controllers.len() {
+            self.controller_ix = 0;
+        }
+
+        ui.horizontal(|ui| {
+            for i in 0..key_config.controllers.len() {
+                let resp = ui.selectable_value(&mut self.controller_ix, i, format!("Pad{}", i + 1));
+                if resp.clicked() {
+                    self.controller_button_ix = 0;
+                }
+            }
+        });
+
+        ui.horizontal(|ui| {
+            let mut resp = ui.selectable_value(
+                &mut self.controller_tab,
+                ControllerTab::Keyboard,
+                "Keyboard",
+            );
+            resp |=
+                ui.selectable_value(&mut self.controller_tab, ControllerTab::Gamepad, "Gamepad");
+            if resp.clicked() {
+                self.controller_button_ix = 0;
+            }
+        });
+
+        ui.group(|ui| {
+            let grid = egui::Grid::new("key_config")
+                .num_columns(2)
+                .spacing([40.0, 4.0])
+                .striped(true);
+
+            grid.show(ui, |ui| {
+                ui.label("Button");
+                ui.label("Assignment");
+                ui.end_row();
+
+                ui.separator();
+                ui.separator();
+                ui.end_row();
+
+                let mut changed: Option<usize> = None;
+
+                match self.controller_tab {
+                    ControllerTab::Keyboard => {
+                        for (ix, (name, assign)) in key_config.controllers[self.controller_ix]
+                            .iter_mut()
+                            .enumerate()
+                        {
+                            let ix = ix + 1;
+                            ui.label(name.clone());
+                            let assign_str = assign
+                                .extract_keycode()
+                                .map_or_else(|| "".to_string(), |k| format!("{k:?}"));
+
+                            ui.selectable_value(&mut self.controller_button_ix, ix, assign_str)
+                                .on_hover_text("Click and type the key you want to assign");
+
+                            if self.controller_button_ix == ix {
+                                if let Some(kc) = key_code_input.get_just_pressed().next() {
+                                    assign.insert_keycode(ConvertInput(*kc).into());
+                                    changed = Some(ix);
+                                }
+                            }
+
+                            ui.end_row();
+                        }
+                    }
+
+                    ControllerTab::Gamepad => {
+                        for (ix, (name, assign)) in key_config.controllers[self.controller_ix]
+                            .iter_mut()
+                            .enumerate()
+                        {
+                            let ix = ix + 1;
+                            ui.label(name.clone());
+
+                            let assign_str = assign
+                                .extract_gamepad()
+                                .map_or_else(|| "".to_string(), |k| k.to_string());
+
+                            ui.selectable_value(&mut self.controller_button_ix, ix, assign_str)
+                                .on_hover_text("Click and press the button you want to assign");
+
+                            if self.controller_button_ix == ix {
+                                if let Some(button) = gamepad_button_input.get_just_pressed().next()
+                                {
+                                    assign.insert_gamepad(ConvertInput(*button).into());
+                                    changed = Some(ix);
+                                }
+                            }
+
+                            ui.end_row();
+                        }
+                    }
+                }
+
+                if let Some(ix) = changed {
+                    self.controller_button_ix = ix + 1;
+                    config.set_key_config(core, key_config);
+                }
+            });
+        });
+
+        if ui.button("Reset to default").clicked() {
+            let default_key_config = Emulator::default_key_config(core);
+            self.controller_ix = 0;
+            self.controller_button_ix = 0;
+            config.set_key_config(core, default_key_config);
+        }
+    }
+
+    fn tab_hotkey(
+        &mut self,
+        ui: &mut egui::Ui,
+        config: &mut Config,
+        key_code_input: &Input<KeyCode>,
+        gamepad_button_input: &Input<GamepadButton>,
+    ) {
+        let grid = |ui: &mut egui::Ui| {
+            ui.label("HotKey");
+            ui.label("Assignment");
+            ui.end_row();
+
+            ui.separator();
+            ui.separator();
+            ui.end_row();
+
+            let mut ix = 1;
+            let mut hotkey_determined = false;
+
+            if self.hotkey_select != 0 {
+                let mut current_pushed = vec![];
+                for r in key_code_input.get_pressed() {
+                    current_pushed.push(SingleKey::KeyCode(ConvertInput(*r).into()));
+                }
+                for r in gamepad_button_input.get_pressed() {
+                    current_pushed.push(SingleKey::GamepadButton(ConvertInput(*r).into()));
+                }
+
+                if self.constructing_hotkey.is_none() {
+                    if !current_pushed.is_empty() {
+                        self.constructing_hotkey = Some(current_pushed);
+                    }
+                } else {
+                    let released = self
+                        .constructing_hotkey
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .any(|k| !current_pushed.contains(k));
+
+                    if released {
+                        hotkey_determined = true;
+                    } else {
+                        for pushed in current_pushed {
+                            if !self.constructing_hotkey.as_ref().unwrap().contains(&pushed) {
+                                self.constructing_hotkey.as_mut().unwrap().push(pushed);
+                            }
+                        }
+                    }
+                }
+            }
+
+            for hotkey in all::<HotKey>() {
+                ui.label(hotkey.to_string());
+
+                ui.horizontal(|ui| {
+                    let key_assign = config.hotkeys.key_assign_mut(&hotkey).unwrap();
+                    for i in 0..key_assign.0.len() {
+                        let key_str = if self.hotkey_select == ix {
+                            if hotkey_determined {
+                                self.hotkey_select = 0;
+                                key_assign.0[i] =
+                                    MultiKey(self.constructing_hotkey.clone().unwrap());
+                                self.constructing_hotkey = None;
+                            }
+
+                            if let Some(mk) = &self.constructing_hotkey {
+                                MultiKey(mk.clone()).to_string()
+                            } else {
+                                key_assign.0[i].to_string()
+                            }
+                        } else {
+                            key_assign.0[i].to_string()
+                        };
+
+                        if ui
+                            .selectable_value(&mut self.hotkey_select, ix, key_str)
+                            .on_hover_text("Click to change\nRight click to remove")
+                            .clicked_by(egui::PointerButton::Secondary)
+                        {
+                            key_assign.0.remove(i);
+                            break;
+                        }
+                        ix += 1;
+                    }
+
+                    let key_str = if self.hotkey_select == ix {
+                        if hotkey_determined {
+                            self.hotkey_select = 0;
+                            key_assign
+                                .0
+                                .push(MultiKey(self.constructing_hotkey.clone().unwrap()));
+                            self.constructing_hotkey = None;
+                        }
+
+                        if let Some(mk) = &self.constructing_hotkey {
+                            MultiKey(mk.clone()).to_string()
+                        } else {
+                            "...".to_string()
+                        }
+                    } else {
+                        "...".to_string()
+                    };
+
+                    ui.selectable_value(&mut self.hotkey_select, ix, key_str)
+                        .on_hover_text("Add new key assignment");
+                    ix += 1;
+                });
+
+                ui.end_row();
+            }
+        };
+        ui.group(|ui| {
+            egui::Grid::new("key_config")
+                .num_columns(2)
+                .spacing([40.0, 4.0])
+                .striped(true)
+                .show(ui, grid);
+        });
+        if ui.button("Reset to default").clicked() {
+            config.hotkeys = HotKeys::default();
+        }
+    }
+
+    fn tab_system_key(
+        &mut self,
+        ui: &mut egui::Ui,
+        config: &mut Config,
+        key_code_input: &Input<KeyCode>,
+        gamepad_button_input: &Input<GamepadButton>,
+    ) {
+        ui.horizontal(|ui| {
+            let mut resp = ui.selectable_value(
+                &mut self.system_key_tab,
+                ControllerTab::Keyboard,
+                "Keyboard",
+            );
+            resp |=
+                ui.selectable_value(&mut self.system_key_tab, ControllerTab::Gamepad, "Gamepad");
+            if resp.clicked() {
+                self.system_key_ix = 0;
+            }
+        });
+
+        ui.group(|ui| {
+            let grid = egui::Grid::new("key_config")
+                .num_columns(2)
+                .spacing([40.0, 4.0])
+                .striped(true);
+
+            grid.show(ui, |ui| {
+                ui.label("Button");
+                ui.label("Assignment");
+                ui.end_row();
+
+                ui.separator();
+                ui.separator();
+                ui.end_row();
+
+                let mut changed: Option<usize> = None;
+
+                match self.system_key_tab {
+                    ControllerTab::Keyboard => {
+                        for (ix, key) in all::<SystemKey>().enumerate() {
+                            let ix = ix + 1;
+
+                            ui.label(key.to_string());
+
+                            let assign = config.system_keys.key_assign_mut(&key);
+
+                            let assign_str = assign
+                                .and_then(|r| r.extract_keycode())
+                                .map_or_else(|| "".to_string(), |k| format!("{k:?}"));
+
+                            ui.selectable_value(&mut self.system_key_ix, ix, assign_str)
+                                .on_hover_text("Click and type the key you want to assign");
+
+                            if self.system_key_ix == ix {
+                                if let Some(kc) = key_code_input.get_just_pressed().next() {
+                                    config
+                                        .system_keys
+                                        .insert_keycode(&key, ConvertInput(*kc).into());
+                                    changed = Some(ix);
+                                }
+                            }
+
+                            ui.end_row();
+                        }
+                    }
+
+                    ControllerTab::Gamepad => {
+                        for (ix, key) in all::<SystemKey>().enumerate() {
+                            let ix = ix + 1;
+
+                            ui.label(key.to_string());
+
+                            let assign = config.system_keys.key_assign_mut(&key);
+
+                            let assign_str = assign
+                                .and_then(|r| r.extract_gamepad())
+                                .map_or_else(|| "".to_string(), |k| k.to_string());
+
+                            ui.selectable_value(&mut self.system_key_ix, ix, assign_str)
+                                .on_hover_text("Click and type the key you want to assign");
+
+                            if self.system_key_ix == ix {
+                                if let Some(button) = gamepad_button_input.get_just_pressed().next()
+                                {
+                                    config
+                                        .system_keys
+                                        .insert_gamepad(&key, ConvertInput(*button).into());
+                                    changed = Some(ix);
+                                }
+                            }
+
+                            ui.end_row();
+                        }
+                    }
+                }
+
+                if let Some(ix) = changed {
+                    self.system_key_ix = ix + 1;
+                }
+            });
+        });
+
+        if ui.button("Reset to default").clicked() {
+            config.system_keys = SystemKeys::default();
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn menu_system(
     mut config: ResMut<Config>,
@@ -149,16 +544,16 @@ fn menu_system(
     gamepad_button_input: Res<Input<GamepadButton>>,
     fullscreen_state: Res<FullscreenState>,
 ) {
-    let MenuState {
-        tab,
-        controller_tab,
-        controller_ix,
-        controller_button_ix,
-        hotkey_select,
-        constructing_hotkey,
-        system_key_tab,
-        system_key_ix: system_key_select,
-    } = menu_state.as_mut();
+    // let MenuState {
+    //     tab,
+    //     controller_tab,
+    //     controller_ix,
+    //     controller_button_ix,
+    //     hotkey_select,
+    //     constructing_hotkey,
+    //     system_key_tab,
+    //     system_key_ix: system_key_select,
+    // } = menu_state.as_mut();
 
     if let Some(error) = menu_error.as_ref() {
         let mut open = true;
@@ -194,47 +589,11 @@ fn menu_system(
             ui.set_width(width / 4.0);
 
             ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-                ui.heading("Main Menu");
-                ui.separator();
-
-                ui.selectable_value(tab, MenuTab::File, "📁 File");
-
-                ui.add_enabled_ui(emulator.is_some(), |ui| {
-                    ui.selectable_value(tab, MenuTab::State, "💾 State Save/Load");
-                });
-
-                ui.add_enabled_ui(emulator.is_some(), |ui| {
-                    ui.selectable_value(tab, MenuTab::GameInfo, "ℹ Game Info");
-                });
-
-                ui.selectable_value(tab, MenuTab::GeneralSetting, "🔧 General Setting");
-                ui.selectable_value(tab, MenuTab::Graphics, "🖼 Graphics");
-
-                ui.collapsing("⚙ Core Setting", |ui| {
-                    for core_info in Emulator::core_infos() {
-                        ui.selectable_value(
-                            tab,
-                            MenuTab::CoreSetting(core_info.abbrev.into()),
-                            core_info.system_name,
-                        );
-                    }
-                });
-                ui.collapsing("🎮 Controller Setting", |ui| {
-                    for core_info in Emulator::core_infos() {
-                        ui.selectable_value(
-                            tab,
-                            MenuTab::ControllerSetting(core_info.abbrev.into()),
-                            core_info.system_name,
-                        );
-                    }
-                });
-
-                ui.selectable_value(tab, MenuTab::HotKey, "⌨ HotKey");
-                ui.selectable_value(tab, MenuTab::SystemKey, "💻 SystemKey");
+                menu_state.tab_selector(ui, emulator.is_some());
             });
         });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| match tab {
+        egui::CentralPanel::default().show_inside(ui, |ui| match menu_state.tab.clone() {
             MenuTab::File => {
                 tab_file(
                     ui,
@@ -313,35 +672,30 @@ fn menu_system(
                     .unwrap();
 
                 ui.heading(format!("{} Controller Settings", core_info.system_name));
-                controller_ui(
+                menu_state.tab_controller(
                     ui,
-                    core,
                     config.as_mut(),
-                    controller_tab,
-                    controller_ix,
-                    controller_button_ix,
-                    key_code_input,
-                    gamepad_button_input,
+                    &core,
+                    key_code_input.as_ref(),
+                    gamepad_button_input.as_ref(),
                 );
             }
             MenuTab::HotKey => {
-                tab_hotkey(
+                ui.heading("Hotkey Settings");
+                menu_state.tab_hotkey(
                     ui,
-                    hotkey_select,
-                    key_code_input,
-                    gamepad_button_input,
-                    constructing_hotkey,
                     config.as_mut(),
+                    key_code_input.as_ref(),
+                    gamepad_button_input.as_ref(),
                 );
             }
             MenuTab::SystemKey => {
-                tab_system_key(
+                ui.heading("System Key Settings");
+                menu_state.tab_system_key(
                     ui,
-                    system_key_tab,
-                    system_key_select,
-                    key_code_input,
-                    gamepad_button_input,
                     config.as_mut(),
+                    key_code_input.as_ref(),
+                    gamepad_button_input.as_ref(),
                 );
             }
         });
@@ -534,350 +888,6 @@ fn tab_general_setting(ui: &mut egui::Ui, config: &mut ResMut<Config>) {
     });
 
     // FIXME: reset auto save timing state when changed rewinding setting
-}
-
-fn tab_hotkey(
-    ui: &mut egui::Ui,
-    hotkey_select: &mut usize,
-    key_code_input: Res<Input<KeyCode>>,
-    gamepad_button_input: Res<Input<GamepadButton>>,
-    constructing_hotkey: &mut Option<Vec<SingleKey>>,
-    config: &mut Config,
-) {
-    ui.heading("HotKey Settings");
-    let grid = |ui: &mut egui::Ui| {
-        ui.label("HotKey");
-        ui.label("Assignment");
-        ui.end_row();
-
-        ui.separator();
-        ui.separator();
-        ui.end_row();
-
-        let mut ix = 1;
-        let mut hotkey_determined = false;
-
-        if *hotkey_select != 0 {
-            let mut current_pushed = vec![];
-            for r in key_code_input.get_pressed() {
-                current_pushed.push(SingleKey::KeyCode(ConvertInput(*r).into()));
-            }
-            for r in gamepad_button_input.get_pressed() {
-                current_pushed.push(SingleKey::GamepadButton(ConvertInput(*r).into()));
-            }
-
-            if constructing_hotkey.is_none() {
-                if !current_pushed.is_empty() {
-                    *constructing_hotkey = Some(current_pushed);
-                }
-            } else {
-                let released = constructing_hotkey
-                    .as_ref()
-                    .unwrap()
-                    .iter()
-                    .any(|k| !current_pushed.contains(k));
-
-                if released {
-                    hotkey_determined = true;
-                } else {
-                    for pushed in current_pushed {
-                        if !constructing_hotkey.as_ref().unwrap().contains(&pushed) {
-                            constructing_hotkey.as_mut().unwrap().push(pushed);
-                        }
-                    }
-                }
-            }
-        }
-
-        for hotkey in all::<HotKey>() {
-            ui.label(hotkey.to_string());
-
-            ui.horizontal(|ui| {
-                let key_assign = config.hotkeys.key_assign_mut(&hotkey).unwrap();
-                for i in 0..key_assign.0.len() {
-                    let key_str = if *hotkey_select == ix {
-                        if hotkey_determined {
-                            *hotkey_select = 0;
-                            key_assign.0[i] = MultiKey(constructing_hotkey.clone().unwrap());
-                            *constructing_hotkey = None;
-                        }
-
-                        if let Some(mk) = constructing_hotkey {
-                            MultiKey(mk.clone()).to_string()
-                        } else {
-                            key_assign.0[i].to_string()
-                        }
-                    } else {
-                        key_assign.0[i].to_string()
-                    };
-
-                    if ui
-                        .selectable_value(hotkey_select, ix, key_str)
-                        .on_hover_text("Click to change\nRight click to remove")
-                        .clicked_by(egui::PointerButton::Secondary)
-                    {
-                        key_assign.0.remove(i);
-                        break;
-                    }
-                    ix += 1;
-                }
-
-                let key_str = if *hotkey_select == ix {
-                    if hotkey_determined {
-                        *hotkey_select = 0;
-                        key_assign
-                            .0
-                            .push(MultiKey(constructing_hotkey.clone().unwrap()));
-                        *constructing_hotkey = None;
-                    }
-
-                    if let Some(mk) = constructing_hotkey {
-                        MultiKey(mk.clone()).to_string()
-                    } else {
-                        "...".to_string()
-                    }
-                } else {
-                    "...".to_string()
-                };
-
-                ui.selectable_value(hotkey_select, ix, key_str)
-                    .on_hover_text("Add new key assignment");
-                ix += 1;
-            });
-
-            ui.end_row();
-        }
-    };
-    ui.group(|ui| {
-        egui::Grid::new("key_config")
-            .num_columns(2)
-            .spacing([40.0, 4.0])
-            .striped(true)
-            .show(ui, grid);
-    });
-    if ui.button("Reset to default").clicked() {
-        config.hotkeys = HotKeys::default();
-    }
-}
-
-fn tab_system_key(
-    ui: &mut egui::Ui,
-    system_key_tab: &mut ControllerTab,
-    system_key_ix: &mut usize,
-    key_code_input: Res<Input<KeyCode>>,
-    gamepad_button_input: Res<Input<GamepadButton>>,
-    config: &mut Config,
-) {
-    ui.horizontal(|ui| {
-        let mut resp = ui.selectable_value(system_key_tab, ControllerTab::Keyboard, "Keyboard");
-        resp |= ui.selectable_value(system_key_tab, ControllerTab::Gamepad, "Gamepad");
-        if resp.clicked() {
-            *system_key_ix = 0;
-        }
-    });
-
-    ui.group(|ui| {
-        let grid = egui::Grid::new("key_config")
-            .num_columns(2)
-            .spacing([40.0, 4.0])
-            .striped(true);
-
-        grid.show(ui, |ui| {
-            ui.label("Button");
-            ui.label("Assignment");
-            ui.end_row();
-
-            ui.separator();
-            ui.separator();
-            ui.end_row();
-
-            let mut changed: Option<usize> = None;
-
-            match system_key_tab {
-                ControllerTab::Keyboard => {
-                    for (ix, key) in all::<SystemKey>().enumerate() {
-                        let ix = ix + 1;
-
-                        ui.label(key.to_string());
-
-                        let assign = config.system_keys.key_assign_mut(&key);
-
-                        let assign_str = assign
-                            .and_then(|r| r.extract_keycode())
-                            .map_or_else(|| "".to_string(), |k| format!("{k:?}"));
-
-                        ui.selectable_value(system_key_ix, ix, assign_str)
-                            .on_hover_text("Click and type the key you want to assign");
-
-                        if *system_key_ix == ix {
-                            if let Some(kc) = key_code_input.get_just_pressed().next() {
-                                config
-                                    .system_keys
-                                    .insert_keycode(&key, ConvertInput(*kc).into());
-                                changed = Some(ix);
-                            }
-                        }
-
-                        ui.end_row();
-                    }
-                }
-
-                ControllerTab::Gamepad => {
-                    for (ix, key) in all::<SystemKey>().enumerate() {
-                        let ix = ix + 1;
-
-                        ui.label(key.to_string());
-
-                        let assign = config.system_keys.key_assign_mut(&key);
-
-                        let assign_str = assign
-                            .and_then(|r| r.extract_gamepad())
-                            .map_or_else(|| "".to_string(), |k| k.to_string());
-
-                        ui.selectable_value(system_key_ix, ix, assign_str)
-                            .on_hover_text("Click and type the key you want to assign");
-
-                        if *system_key_ix == ix {
-                            if let Some(button) = gamepad_button_input.get_just_pressed().next() {
-                                config
-                                    .system_keys
-                                    .insert_gamepad(&key, ConvertInput(*button).into());
-                                changed = Some(ix);
-                            }
-                        }
-
-                        ui.end_row();
-                    }
-                }
-            }
-
-            if let Some(ix) = changed {
-                *system_key_ix = ix + 1;
-            }
-        });
-    });
-
-    if ui.button("Reset to default").clicked() {
-        config.system_keys = SystemKeys::default();
-    }
-}
-
-fn controller_ui(
-    ui: &mut egui::Ui,
-    core: &str,
-    config: &mut Config,
-    controller_tab: &mut ControllerTab,
-    controller_ix: &mut usize,
-    controller_button_ix: &mut usize,
-    key_code_input: Res<Input<KeyCode>>,
-    gamepad_button_input: Res<Input<GamepadButton>>,
-) {
-    let mut key_config = config.key_config(core).clone();
-
-    if *controller_ix >= key_config.controllers.len() {
-        *controller_ix = 0;
-    }
-
-    ui.horizontal(|ui| {
-        for i in 0..key_config.controllers.len() {
-            let resp = ui.selectable_value(controller_ix, i, format!("Pad{}", i + 1));
-            if resp.clicked() {
-                *controller_button_ix = 0;
-            }
-        }
-    });
-
-    ui.horizontal(|ui| {
-        let mut resp = ui.selectable_value(controller_tab, ControllerTab::Keyboard, "Keyboard");
-        resp |= ui.selectable_value(controller_tab, ControllerTab::Gamepad, "Gamepad");
-        if resp.clicked() {
-            *controller_button_ix = 0;
-        }
-    });
-
-    ui.group(|ui| {
-        let grid = egui::Grid::new("key_config")
-            .num_columns(2)
-            .spacing([40.0, 4.0])
-            .striped(true);
-
-        grid.show(ui, |ui| {
-            ui.label("Button");
-            ui.label("Assignment");
-            ui.end_row();
-
-            ui.separator();
-            ui.separator();
-            ui.end_row();
-
-            let mut changed: Option<usize> = None;
-
-            match controller_tab {
-                ControllerTab::Keyboard => {
-                    for (ix, (name, assign)) in key_config.controllers[*controller_ix]
-                        .iter_mut()
-                        .enumerate()
-                    {
-                        let ix = ix + 1;
-                        ui.label(name.clone());
-                        let assign_str = assign
-                            .extract_keycode()
-                            .map_or_else(|| "".to_string(), |k| format!("{k:?}"));
-
-                        ui.selectable_value(controller_button_ix, ix, assign_str)
-                            .on_hover_text("Click and type the key you want to assign");
-
-                        if *controller_button_ix == ix {
-                            if let Some(kc) = key_code_input.get_just_pressed().next() {
-                                assign.insert_keycode(ConvertInput(*kc).into());
-                                changed = Some(ix);
-                            }
-                        }
-
-                        ui.end_row();
-                    }
-                }
-
-                ControllerTab::Gamepad => {
-                    for (ix, (name, assign)) in key_config.controllers[*controller_ix]
-                        .iter_mut()
-                        .enumerate()
-                    {
-                        let ix = ix + 1;
-                        ui.label(name.clone());
-
-                        let assign_str = assign
-                            .extract_gamepad()
-                            .map_or_else(|| "".to_string(), |k| k.to_string());
-
-                        ui.selectable_value(controller_button_ix, ix, assign_str)
-                            .on_hover_text("Click and press the button you want to assign");
-
-                        if *controller_button_ix == ix {
-                            if let Some(button) = gamepad_button_input.get_just_pressed().next() {
-                                assign.insert_gamepad(ConvertInput(*button).into());
-                                changed = Some(ix);
-                            }
-                        }
-
-                        ui.end_row();
-                    }
-                }
-            }
-
-            if let Some(ix) = changed {
-                *controller_button_ix = ix + 1;
-                config.set_key_config(core, key_config);
-            }
-        });
-    });
-
-    if ui.button("Reset to default").clicked() {
-        let default_key_config = Emulator::default_key_config(core);
-        *controller_ix = 0;
-        *controller_button_ix = 0;
-        config.set_key_config(core, default_key_config);
-    }
 }
 
 fn file_dialog_filters() -> Vec<(String, Vec<String>)> {
