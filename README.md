@@ -4,6 +4,8 @@ Meru is a multiple game consoles emulator written in Rust.
 
 Current supported cores:
 
+* [Sabicom](https://github.com/tanakh/sabicom) (NES / Famicom)
+* [Super Sabicom](https://github.com/tanakh/sabicom) (SNES / Super Famicom)
 * [TGBR](https://github.com/tanakh/tgbr) (Game Boy)
 * [TGBA](https://github.com/tanakh/tgba) (Game Boy Advance)
 
