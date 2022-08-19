@@ -3707,6 +3707,7 @@ dependencies = [
  "bitvec",
  "log",
  "meru-interface",
+ "modular-bitfield",
  "serde",
  "serde_bytes",
  "thiserror",
