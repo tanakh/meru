@@ -66,9 +66,10 @@ macro_rules! def_emulator_cores {
 }
 
 def_emulator_cores!(
+    Nes(sabicom::Nes),
+    Snes(super_sabicom::Snes),
     GameBoy(tgbr::GameBoy),
     GameBoyAdvance(tgba::Agb),
-    Snes(super_sabicom::Snes),
 );
 
 impl EmulatorCores {

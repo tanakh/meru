@@ -589,9 +589,9 @@ dependencies = [
 
 [[package]]
 name = "bevy_pbr"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed9a81bbd02f5e0a57899a41aec37d9cb14965e1e4d510547f3f680323d05c0f"
+checksum = "176073021a4caeb8b448f24ce790fb57fde74b114f345064a8b102d2f7bed905"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -725,9 +725,9 @@ dependencies = [
 
 [[package]]
 name = "bevy_sprite"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f83dfe8897d6c0d9d5ce3818d49a13e58ae2b9b9ecf4f4bb85aa31bb0678f68"
+checksum = "69c419f3db09d7ac1f4d45e0874d349d5d6f47f48bc10d55cd0da36413e2331e"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -825,9 +825,9 @@ dependencies = [
 
 [[package]]
 name = "bevy_ui"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac181a7b637da61fad72981ff9d2e5b899283ca7d54b2b7ea49c431121331c53"
+checksum = "062ce086de1a4a470e5df48cb5c16a1dc97ab610e635cafabdef26c4a1ef5756"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -867,9 +867,9 @@ dependencies = [
 
 [[package]]
 name = "bevy_window"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3bdc3a220a9bb2fad9bd30d5f44c6645725398fe1bc588fc87abf09f092696e"
+checksum = "707dbbebfac72b1e63e874e7a11a345feab8c440355c0bd71e6dff26709fba9a"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
@@ -1370,9 +1370,9 @@ dependencies = [
 
 [[package]]
 name = "cpufeatures"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59a6001667ab124aebae2a495118e11d30984c3a653e99d86d58971708cf5e4b"
+checksum = "1079fb8528d9f9c888b1e8aa651e6e079ade467323d58f75faf1d30b1808f540"
 dependencies = [
  "libc",
 ]
@@ -2177,9 +2177,9 @@ checksum = "8a164bb2ceaeff4f42542bdb847c41517c78a60f5649671b2a07312b6e117549"
 
 [[package]]
 name = "iana-time-zone"
-version = "0.1.45"
+version = "0.1.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef5528d9c2817db4e10cc78f8d4c8228906e5854f389ff6b076cee3572a09d35"
+checksum = "ad2bfd338099682614d3ee3fe0cd72e0b6a41ca6a87f6a74a3bd593c91650501"
 dependencies = [
  "android_system_properties",
  "core-foundation-sys 0.8.3",
@@ -2536,9 +2536,10 @@ dependencies = [
  "enum-iterator",
  "image 0.24.3",
  "log",
- "meru-interface 0.2.0",
+ "meru-interface",
  "rfd",
  "rodio",
+ "sabicom",
  "serde",
  "serde_json",
  "super-sabicom",
@@ -2553,14 +2554,6 @@ dependencies = [
 [[package]]
 name = "meru-interface"
 version = "0.2.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "meru-interface"
-version = "0.2.0"
-source = "git+https://github.com/tanakh/meru/#5766ec33d4355d6262c58e8ea370d36249a768fc"
 dependencies = [
  "serde",
 ]
@@ -3393,6 +3386,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4501abdff3ae82a1c1b477a17252eb69cee9e66eb915c1abaa4f44d873df9f09"
 
 [[package]]
+name = "sabicom"
+version = "0.1.0"
+dependencies = [
+ "ambassador",
+ "anyhow",
+ "bincode",
+ "bitvec",
+ "bytesize",
+ "chrono",
+ "crc32fast",
+ "log",
+ "meru-interface",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "same-file"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3600,7 +3610,7 @@ dependencies = [
  "educe",
  "encoding_rs",
  "log",
- "meru-interface 0.2.0",
+ "meru-interface",
  "modular-bitfield",
  "serde",
  "super-sabicom-macro",
@@ -3696,7 +3706,7 @@ dependencies = [
  "bincode",
  "bitvec",
  "log",
- "meru-interface 0.2.0 (git+https://github.com/tanakh/meru/)",
+ "meru-interface",
  "serde",
  "serde_bytes",
  "thiserror",
@@ -3712,7 +3722,7 @@ dependencies = [
  "bytesize",
  "chrono",
  "log",
- "meru-interface 0.2.0 (git+https://github.com/tanakh/meru/)",
+ "meru-interface",
  "serde",
  "serde_bytes",
  "sha2",
