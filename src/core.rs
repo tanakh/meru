@@ -2,6 +2,7 @@ use anyhow::{anyhow, bail, Result};
 use bevy::{
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+    tasks::AsyncComputeTaskPool,
 };
 use bevy_tiled_camera::{TiledCamera, TiledCameraBundle};
 use meru_interface::{
@@ -9,14 +10,15 @@ use meru_interface::{
 };
 use std::{
     collections::VecDeque,
-    fs::{self, File},
-    io::{Seek, SeekFrom},
+    future::Future,
+    io::Cursor,
     marker::PhantomData,
     path::{Path, PathBuf},
 };
 
 use crate::{
     app::{AppState, ScreenSprite, WindowControlEvent},
+    archive::Archive,
     config::Config,
     file::{load_backup, load_state, save_backup, save_state},
     hotkey,
@@ -81,11 +83,11 @@ impl EmulatorCores {
     }
 }
 
-fn make_core_from_data<T: EmulatorCore + Into<EmulatorEnum>, F: FnMut() -> Result<Vec<u8>>>(
+async fn make_core_from_data<T: EmulatorCore + Into<EmulatorEnum>>(
     _: &PhantomData<T>,
     name: &str,
     ext: &str,
-    mut data: F,
+    data: &[u8],
     config: &Config,
 ) -> Option<Result<EmulatorEnum>> {
     let core_info = <T as EmulatorCore>::core_info();
@@ -93,28 +95,29 @@ fn make_core_from_data<T: EmulatorCore + Into<EmulatorEnum>, F: FnMut() -> Resul
         None?;
     }
 
-    let mut f = || {
-        let backup = load_backup(core_info.abbrev, name, &config.save_dir)?;
-        let data = data()?;
-        let core = T::try_from_file(&data, backup.as_deref(), &config.core_config::<T>())?;
+    let fut = async {
+        let backup = load_backup(core_info.abbrev, name, &config.save_dir).await?;
+        let core = T::try_from_file(data, backup.as_deref(), &config.core_config::<T>())?;
         Ok(core.into())
     };
-    Some(f())
+
+    Some(fut.await)
 }
 
 impl EmulatorEnum {
-    pub fn try_new(
-        name: &str,
-        ext: &str,
-        mut data: impl FnMut() -> Result<Vec<u8>>,
-        config: &Config,
-    ) -> Result<Self> {
+    pub fn exist_supported_core(ext: &str) -> bool {
+        EMULATOR_CORES
+            .iter()
+            .any(|core| core.core_info().file_extensions.contains(&ext))
+    }
+
+    pub async fn try_new(name: &str, ext: &str, data: &[u8], config: &Config) -> Result<Self> {
         for core in EMULATOR_CORES {
             if let Some(ret) = dispatch_enum!(
                 EmulatorCores,
                 core,
                 core,
-                make_core_from_data(core, name, ext, &mut data, config)
+                make_core_from_data(core, name, ext, data, config).await
             ) {
                 return ret;
             }
@@ -187,18 +190,11 @@ pub struct Emulator {
 
 impl Drop for Emulator {
     fn drop(&mut self) {
-        if let Some(ram) = self.core.backup() {
-            if let Err(err) = save_backup(
-                self.core.core_info().abbrev,
-                &self.game_name,
-                &ram,
-                &self.save_dir,
-            ) {
-                error!("Failed to save backup ram: {err}");
-            }
-        } else {
-            info!("No backup RAM to save");
-        }
+        let fut = self.save_backup();
+        AsyncComputeTaskPool::get().spawn_local(async {
+            fut.await?;
+            Ok::<(), anyhow::Error>(())
+        });
     }
 }
 
@@ -211,11 +207,7 @@ fn is_archive_file(path: &Path) -> bool {
     })
 }
 
-fn try_make_emulator(
-    path: &Path,
-    mut data: impl FnMut() -> Result<Vec<u8>>,
-    config: &Config,
-) -> Result<Emulator> {
+async fn try_make_emulator(path: &Path, data: &[u8], config: &Config) -> Result<Emulator> {
     let ext = path
         .extension()
         .ok_or_else(|| anyhow!("Cannot detect file type"))?
@@ -226,7 +218,7 @@ fn try_make_emulator(
         .ok_or_else(|| anyhow!("Invalid file name"))?
         .to_string_lossy();
 
-    let core = EmulatorEnum::try_new(&name, &ext, &mut data, config)?;
+    let core = EmulatorEnum::try_new(&name, &ext, &data, config).await?;
 
     Ok(Emulator {
         core,
@@ -275,23 +267,19 @@ impl Emulator {
         panic!();
     }
 
-    pub fn try_new(path: &Path, config: &Config) -> Result<Self> {
+    pub async fn try_new_from_bytes(path: &Path, data: Vec<u8>, config: &Config) -> Result<Self> {
         if is_archive_file(path) {
-            let mut f = File::open(path)?;
+            let data = Cursor::new(data);
+            let mut archive = Archive::new(data)?;
 
-            let files = compress_tools::list_archive_files(&mut f)?;
-
-            for path in files {
-                let res = try_make_emulator(
-                    Path::new(&path),
-                    || {
-                        let mut data = vec![];
-                        f.seek(SeekFrom::Start(0))?;
-                        compress_tools::uncompress_archive_file(&mut f, &mut data, &path)?;
-                        Ok(data)
-                    },
-                    config,
-                );
+            for file in archive.file_names()? {
+                let path = Path::new(&file);
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                if !EmulatorEnum::exist_supported_core(ext) {
+                    continue;
+                }
+                let data = archive.uncompress_file(&file)?;
+                let res = try_make_emulator(Path::new(&file), &data, config).await;
                 if res.is_ok() {
                     return res;
                 }
@@ -299,14 +287,11 @@ impl Emulator {
 
             bail!("File does not contain a supported file");
         } else {
-            try_make_emulator(
-                path,
-                || {
-                    let data = fs::read(path)?;
-                    Ok(data)
-                },
-                config,
-            )
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if !EmulatorEnum::exist_supported_core(ext) {
+                bail!("No supported core for {}", path.display());
+            }
+            try_make_emulator(path, &data, config).await
         }
     }
 
@@ -314,18 +299,21 @@ impl Emulator {
         self.core.reset();
     }
 
-    pub fn save_backup(&mut self) -> Result<()> {
-        if let Some(ram) = self.core.backup() {
-            save_backup(
-                self.core.core_info().abbrev,
-                &self.game_name,
-                &ram,
-                &self.save_dir,
-            )?;
-        }
-
+    pub fn save_backup(&mut self) -> impl Future<Output = Result<()>> {
         self.prev_backup_saved_frame = self.frames;
-        Ok(())
+
+        let backup = self.core.backup();
+        let abbrev = self.core.core_info().abbrev.to_string();
+        let game_name = self.game_name.clone();
+        let save_dir = self.save_dir.clone();
+
+        async move {
+            if let Some(ram) = backup {
+                save_backup(&abbrev, &game_name, &ram, &save_dir).await
+            } else {
+                Ok(())
+            }
+        }
     }
 
     pub fn push_auto_save(&mut self) {
@@ -336,25 +324,39 @@ impl Emulator {
         self.auto_saved_states.push_back(saved_state);
     }
 
-    pub fn save_state_slot(&self, slot: usize, config: &Config) -> Result<()> {
+    pub fn save_state_slot(
+        &self,
+        slot: usize,
+        config: &Config,
+    ) -> impl Future<Output = Result<()>> {
         let data = self.core.save_state();
-        save_state(
-            self.core.core_info().abbrev,
-            &self.game_name,
-            slot,
-            &data,
-            &config.save_dir,
-        )
+        let abbrev = self.core.core_info().abbrev.to_string();
+        let game_name = self.game_name.clone();
+        let save_dir = config.save_dir.clone();
+
+        async move {
+            let ret = save_state(&abbrev, &game_name, slot, &data, &save_dir).await;
+            ret
+        }
     }
 
-    pub fn load_state_slot(&mut self, slot: usize, config: &Config) -> Result<()> {
-        let data = load_state(
-            self.core.core_info().abbrev,
-            &self.game_name,
-            slot,
-            &config.save_dir,
-        )?;
-        self.core.load_state(&data)
+    pub fn load_state_slot(
+        &self,
+        slot: usize,
+        config: &Config,
+    ) -> impl Future<Output = Result<Vec<u8>>> {
+        let abbrev = self.core.core_info().abbrev.to_string();
+        let game_name = self.game_name.clone();
+        let save_dir = config.save_dir.clone();
+
+        async move {
+            let data = load_state(&abbrev, &game_name, slot, &save_dir).await?;
+            Ok(data)
+        }
+    }
+
+    pub fn load_state_data(&mut self, data: &[u8]) -> Result<()> {
+        self.core.load_state(data)
     }
 }
 
@@ -604,7 +606,8 @@ fn emulator_system(
     }
 
     if emulator.prev_backup_saved_frame + 60 * 60 <= emulator.frames {
-        emulator.save_backup().unwrap();
+        let fut = emulator.save_backup();
+        AsyncComputeTaskPool::get().spawn_local(async move { fut.await });
     }
 }
 

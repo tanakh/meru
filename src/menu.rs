@@ -1,16 +1,18 @@
-use bevy::prelude::*;
+use bevy::{prelude::*, tasks::AsyncComputeTaskPool};
 use bevy_egui::{egui, EguiContext};
+use cfg_if::cfg_if;
 use enum_iterator::all;
 use meru_interface::{MultiKey, SingleKey, Ui};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::{
     app::{AppState, FullscreenState, ShowMessage, WindowControlEvent},
-    config::{Config, PersistentState, SystemKey, SystemKeys},
+    config::{Config, PersistentState, RecentFile, SystemKey, SystemKeys},
     core::{Emulator, ARCHIVE_EXTENSIONS},
     file::state_date,
     hotkey::{HotKey, HotKeys},
     input::ConvertInput,
+    utils::{Receiver, Sender},
 };
 
 pub const MENU_WIDTH: usize = 1280;
@@ -19,7 +21,14 @@ pub const MENU_HEIGHT: usize = 720;
 pub struct MenuPlugin;
 
 pub enum MenuEvent {
-    OpenRomFile(PathBuf),
+    OpenRomFile {
+        path: PathBuf,
+        data: Vec<u8>,
+    },
+    OpenRomDone {
+        recent: RecentFile,
+        result: anyhow::Result<Emulator>,
+    },
 }
 
 impl Plugin for MenuPlugin {
@@ -52,38 +61,66 @@ fn setup_menu_system(
 
     commands.insert_resource(MenuState::default());
     commands.insert_resource(None as Option<MenuError>);
+
+    let (s, r) = async_channel::unbounded();
+    commands.insert_resource(Sender::<MenuEvent>::new(s));
+    commands.insert_resource(Receiver::<MenuEvent>::new(r));
 }
 
 fn menu_exit(config: Res<Config>) {
-    config.save().unwrap();
+    let config = config.clone();
+    AsyncComputeTaskPool::get().spawn_local(async move { config.save().await });
 }
 
 fn menu_event_system(
     mut commands: Commands,
-    mut event: EventReader<MenuEvent>,
+    recv: Res<Receiver<MenuEvent>>,
+    send: Res<Sender<MenuEvent>>,
     mut app_state: ResMut<State<AppState>>,
     mut persistent_state: ResMut<PersistentState>,
-    mut error_msg: ResMut<Option<MenuError>>,
+    mut menu_error: ResMut<Option<MenuError>>,
     config: Res<Config>,
 ) {
-    for event in event.iter() {
+    while let Ok(event) = recv.try_recv() {
         match event {
-            MenuEvent::OpenRomFile(path) => {
-                info!("Opening file: {:?}", path);
-                match Emulator::try_new(path, &config) {
-                    Ok(emulator) => {
-                        commands.insert_resource(emulator);
-                        persistent_state.add_recent(&path);
-                        app_state.set(AppState::Running).unwrap();
-                    }
-                    Err(err) => {
-                        *error_msg.as_mut() = Some(MenuError {
-                            title: "Failed to open ROM".into(),
-                            message: err.to_string(),
-                        });
-                    }
-                }
+            MenuEvent::OpenRomFile { path, data } => {
+                let config = config.clone();
+                let send = send.clone();
+
+                let recent = RecentFile {
+                    path: path.clone(),
+                    #[cfg(target_arch = "wasm32")]
+                    data: data.clone(),
+                };
+
+                AsyncComputeTaskPool::get().spawn_local(async move {
+                    info!("Opening file: {:?}", path);
+                    let result = Emulator::try_new_from_bytes(&path, data, &config).await;
+                    send.send(MenuEvent::OpenRomDone { recent, result }).await?;
+                    Ok::<(), anyhow::Error>(())
+                });
             }
+            MenuEvent::OpenRomDone { recent, result } => match result {
+                Ok(emulator) => {
+                    commands.insert_resource(emulator);
+
+                    persistent_state.add_recent(recent);
+                    let fut = persistent_state.save();
+                    AsyncComputeTaskPool::get()
+                        .spawn_local(async move {
+                            fut.await?;
+                            Ok::<(), anyhow::Error>(())
+                        })
+                        .detach();
+                    app_state.set(AppState::Running).unwrap();
+                }
+                Err(err) => {
+                    *menu_error.as_mut() = Some(MenuError {
+                        title: "Failed to open ROM".into(),
+                        message: err.to_string(),
+                    });
+                }
+            },
         }
     }
 }
@@ -536,7 +573,7 @@ fn menu_system(
     mut app_state: ResMut<State<AppState>>,
     mut menu_state: ResMut<MenuState>,
     mut emulator: Option<ResMut<Emulator>>,
-    mut menu_event: EventWriter<MenuEvent>,
+    mut menu_event: ResMut<Sender<MenuEvent>>,
     mut message_event: EventWriter<ShowMessage>,
     mut window_control_event: EventWriter<WindowControlEvent>,
     mut menu_error: ResMut<Option<MenuError>>,
@@ -544,17 +581,6 @@ fn menu_system(
     gamepad_button_input: Res<Input<GamepadButton>>,
     fullscreen_state: Res<FullscreenState>,
 ) {
-    // let MenuState {
-    //     tab,
-    //     controller_tab,
-    //     controller_ix,
-    //     controller_button_ix,
-    //     hotkey_select,
-    //     constructing_hotkey,
-    //     system_key_tab,
-    //     system_key_ix: system_key_select,
-    // } = menu_state.as_mut();
-
     if let Some(error) = menu_error.as_ref() {
         let mut open = true;
         let mut clicked = false;
@@ -600,7 +626,8 @@ fn menu_system(
                     emulator.as_ref().map(|r| r.as_ref()),
                     app_state.as_mut(),
                     persistent_state.as_ref(),
-                    &mut menu_event,
+                    menu_event.as_mut(),
+                    menu_error.as_mut(),
                 );
             }
             MenuTab::State => {
@@ -705,7 +732,65 @@ fn menu_system(
         if let Some(emulator) = emulator.as_deref_mut() {
             emulator.core.set_config(config.as_ref());
         }
-        config.save().unwrap();
+
+        let config = config.clone();
+        AsyncComputeTaskPool::get().spawn_local(async move {
+            config.save().await.unwrap();
+        });
+    }
+}
+
+fn file_dialog_filters() -> Vec<(String, Vec<String>)> {
+    let mut ret = vec![("All files".into(), vec!["*".to_string()])];
+
+    for info in Emulator::core_infos() {
+        let name = format!("{} file", info.abbrev);
+        let exts = info
+            .file_extensions
+            .iter()
+            .chain(ARCHIVE_EXTENSIONS)
+            .map(|e| e.to_string())
+            .collect();
+        ret.push((name, exts));
+    }
+
+    ret
+}
+
+async fn file_dialog(
+    current_directory: Option<&Path>,
+    filter: &[(&str, &[&str])],
+    is_dir: bool,
+) -> Option<(PathBuf, Vec<u8>)> {
+    let fd = rfd::AsyncFileDialog::new();
+
+    let fd = if let Some(path) = current_directory {
+        fd.set_directory(path)
+    } else {
+        fd
+    };
+
+    let fd = filter
+        .iter()
+        .fold(fd, |fd, (name, extensions)| fd.add_filter(name, extensions));
+
+    let file = if is_dir {
+        cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                panic!("Wasm does not support directory selection")
+            } else {
+                fd.pick_folder().await
+            }
+        }
+    } else {
+        fd.pick_file().await
+    };
+
+    if let Some(file) = file {
+        let data = file.read().await;
+        Some((PathBuf::from(file.file_name()), data))
+    } else {
+        None
     }
 }
 
@@ -714,7 +799,8 @@ fn tab_file(
     emulator: Option<&Emulator>,
     app_state: &mut State<AppState>,
     persistent_state: &PersistentState,
-    menu_event: &mut EventWriter<MenuEvent>,
+    menu_event: &Sender<MenuEvent>,
+    menu_error: &mut Option<MenuError>,
 ) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
@@ -728,17 +814,54 @@ fn tab_file(
 
             ui.label("Load ROM");
             if ui.button("Open File").clicked() {
-                let mut fd = rfd::FileDialog::new();
 
-                for (name, exts) in file_dialog_filters() {
-                    let exts = exts.iter().map(|r| r.as_str()).collect::<Vec<_>>();
-                    fd = fd.add_filter(&name, &exts);
-                }
+                let menu_event = menu_event.clone();
 
-                let file = fd.pick_file();
+                cfg_if! {
+                    if #[cfg(target_arch = "wasm32")] {
+                        wasm_bindgen_futures::spawn_local(async move {
+                            let filter = file_dialog_filters();
+                            let filter_ref = filter
+                                .iter()
+                                .map(|(name, exts)| {
+                                    let exts = exts.iter().map(|r| r.as_str()).collect::<Vec<_>>();
+                                    (name.as_ref(), exts)
+                                })
+                                .collect::<Vec<_>>();
+                            let filter_ref = filter_ref
+                                .iter()
+                                .map(|(key, filter)| (*key, filter.as_slice()))
+                                .collect::<Vec<_>>();
 
-                if let Some(file) = file {
-                    menu_event.send(MenuEvent::OpenRomFile(file));
+                            if let Some((path, data)) = file_dialog(None, &filter_ref, false).await {
+                                menu_event.try_send(MenuEvent::OpenRomFile{
+                                    path, data
+                                }).unwrap();
+                            }
+                        });
+                    } else {
+                        futures::executor::block_on(async move {
+                            let filter = file_dialog_filters();
+                            let filter_ref = filter
+                                .iter()
+                                .map(|(name, exts)| {
+                                    let exts = exts.iter().map(|r| r.as_str()).collect::<Vec<_>>();
+                                    (name.as_ref(), exts)
+                                })
+                                .collect::<Vec<_>>();
+                            let filter_ref = filter_ref
+                                .iter()
+                                .map(|(key, filter)| (*key, filter.as_slice()))
+                                .collect::<Vec<_>>();
+
+                            if let Some((path, data)) = file_dialog(None, &filter_ref, false).await {
+                                menu_event.try_send(MenuEvent::OpenRomFile {
+                                    path, data
+                                }).unwrap();
+                            }
+                        });
+
+                    }
                 }
             }
 
@@ -747,10 +870,29 @@ fn tab_file(
 
             for recent in &persistent_state.recent {
                 if ui
-                    .button(recent.file_name().unwrap().to_string_lossy().to_string())
+                    .button(recent.path.file_name().unwrap().to_string_lossy().to_string())
                     .clicked()
                 {
-                    menu_event.send(MenuEvent::OpenRomFile(recent.clone()));
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let data = {
+                        match std::fs::read(&recent.path) {
+                            Ok(data) => data,
+                            Err(err) => {
+                                *menu_error = Some(MenuError {
+                                    title: "Failed to open ROM XXX".into(),
+                                    message: err.to_string(),
+                                });
+                                continue;
+                            }
+                        }
+                    };
+
+                    #[cfg(target_arch = "wasm32")]
+                    let data = recent.data.clone();
+
+                    let path = recent.path.clone();
+
+                    menu_event.try_send(MenuEvent::OpenRomFile { path, data }).unwrap();
                 }
             }
         });
@@ -766,58 +908,60 @@ fn tab_state(
 ) {
     ui.heading("State Save / Load");
 
-    ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-        ui.group(|ui| {
-            ui.label("Slot");
+    todo!()
 
-            let grid = |ui: &mut egui::Ui| {
-                for i in 0..10 {
-                    ui.label(format!("{}", i));
+    // ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+    //     ui.group(|ui| {
+    //         ui.label("Slot");
 
-                    let date = state_date(
-                        emulator.core.core_info().abbrev,
-                        &emulator.game_name,
-                        i,
-                        &config.save_dir,
-                    )
-                    .unwrap();
+    //         let grid = |ui: &mut egui::Ui| {
+    //             for i in 0..10 {
+    //                 ui.label(format!("{}", i));
 
-                    if ui.button("Save").clicked() {
-                        emulator.save_state_slot(i, config).unwrap();
-                        message_event.send(ShowMessage(format!("State saved: #{}", i)));
-                    }
-                    ui.add_enabled_ui(date.is_some(), |ui| {
-                        if ui.button("Load").clicked() {
-                            match emulator.load_state_slot(i, config) {
-                                Ok(_) => {
-                                    message_event
-                                        .send(ShowMessage(format!("State loaded: #{}", i)));
-                                }
-                                Err(e) => {
-                                    message_event
-                                        .send(ShowMessage("Failed to load state".to_string()));
-                                    error!("Failed to load state: {}", e);
-                                }
-                            }
-                            app_state.set(AppState::Running).unwrap();
-                        }
-                    });
+    //                 let date = state_date(
+    //                     emulator.core.core_info().abbrev,
+    //                     &emulator.game_name,
+    //                     i,
+    //                     &config.save_dir,
+    //                 )
+    //                 .unwrap();
 
-                    ui.label(date.map_or_else(
-                        || "---".to_string(),
-                        |date| date.format("%Y/%m/%d %H:%M:%S").to_string(),
-                    ));
-                    ui.end_row();
-                }
-            };
+    //                 if ui.button("Save").clicked() {
+    //                     emulator.save_state_slot(i, config).unwrap();
+    //                     message_event.send(ShowMessage(format!("State saved: #{}", i)));
+    //                 }
+    //                 ui.add_enabled_ui(date.is_some(), |ui| {
+    //                     if ui.button("Load").clicked() {
+    //                         match emulator.load_state_slot(i, config) {
+    //                             Ok(_) => {
+    //                                 message_event
+    //                                     .send(ShowMessage(format!("State loaded: #{}", i)));
+    //                             }
+    //                             Err(e) => {
+    //                                 message_event
+    //                                     .send(ShowMessage("Failed to load state".to_string()));
+    //                                 error!("Failed to load state: {}", e);
+    //                             }
+    //                         }
+    //                         app_state.set(AppState::Running).unwrap();
+    //                     }
+    //                 });
 
-            egui::Grid::new("state_save")
-                .num_columns(4)
-                .spacing([40.0, 4.0])
-                .striped(true)
-                .show(ui, grid);
-        });
-    });
+    //                 ui.label(date.map_or_else(
+    //                     || "---".to_string(),
+    //                     |date| date.format("%Y/%m/%d %H:%M:%S").to_string(),
+    //                 ));
+    //                 ui.end_row();
+    //             }
+    //         };
+
+    //         egui::Grid::new("state_save")
+    //             .num_columns(4)
+    //             .spacing([40.0, 4.0])
+    //             .striped(true)
+    //             .show(ui, grid);
+    //     });
+    // });
 }
 
 fn tab_game_info(ui: &mut egui::Ui, emulator: &Emulator) {
@@ -890,23 +1034,6 @@ fn tab_general_setting(ui: &mut egui::Ui, config: &mut ResMut<Config>) {
     // FIXME: reset auto save timing state when changed rewinding setting
 }
 
-fn file_dialog_filters() -> Vec<(String, Vec<String>)> {
-    let mut ret = vec![("All files".into(), vec!["*".to_string()])];
-
-    for info in Emulator::core_infos() {
-        let name = format!("{} file", info.abbrev);
-        let exts = info
-            .file_extensions
-            .iter()
-            .chain(ARCHIVE_EXTENSIONS)
-            .map(|e| e.to_string())
-            .collect();
-        ret.push((name, exts));
-    }
-
-    ret
-}
-
 pub fn file_field(
     ui: &mut egui::Ui,
     label: &str,
@@ -918,25 +1045,12 @@ pub fn file_field(
     ui.horizontal(|ui| {
         ui.label(label);
         if ui.button("Change").clicked() {
-            let fd = rfd::FileDialog::new();
-            let fd = if let Some(path) = path {
-                fd.set_directory(path)
-            } else {
-                fd
-            };
-            let fd = file_filter
-                .iter()
-                .fold(fd, |fd, (name, extensions)| fd.add_filter(name, extensions));
-            let dir = if file_filter.is_empty() {
-                fd.pick_folder()
-            } else {
-                fd.pick_file()
-            };
-
-            if let Some(new_path) = dir {
-                *path = Some(new_path);
-                ret = true;
-            }
+            ui.label("TODO");
+            // if let Some(new_path) = file_dialog(path.as_ref(), file_filter, file_filter.is_empty())
+            // {
+            //     *path = Some(new_path);
+            //     ret = true;
+            // }
         }
         if has_clear && ui.button("Clear").clicked() {
             *path = None;

@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use directories::ProjectDirs;
+use bevy::tasks::AsyncComputeTaskPool;
 use enum_iterator::Sequence;
 use log::info;
 use meru_interface::EmulatorCore;
@@ -8,11 +8,16 @@ use serde_json::Value;
 use std::{
     collections::{BTreeMap, VecDeque},
     fmt::Display,
-    fs,
+    future::Future,
     path::{Path, PathBuf},
 };
 
-use crate::{core::Emulator, hotkey::HotKeys, input::KeyConfig};
+use crate::{
+    core::Emulator,
+    file::{create_dir_all, read, read_to_string, write},
+    hotkey::HotKeys,
+    input::KeyConfig,
+};
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Serialize, Deserialize, Sequence)]
 pub enum SystemKey {
@@ -73,6 +78,30 @@ pub struct Config {
     key_configs: BTreeMap<String, meru_interface::KeyConfig>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+mod dirs {
+    use anyhow::{anyhow, Result};
+    use directories::ProjectDirs;
+
+    pub fn project_dirs() -> Result<ProjectDirs> {
+        let ret = ProjectDirs::from("", "", "meru")
+            .ok_or_else(|| anyhow!("Cannot find project directory"))?;
+        Ok(ret)
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+mod dirs {
+    use anyhow::{bail, Result};
+    use directories::ProjectDirs;
+
+    pub fn project_dirs() -> Result<ProjectDirs> {
+        bail!("wasm does not support project directories")
+    }
+}
+
+use dirs::project_dirs;
+
 impl Default for Config {
     fn default() -> Self {
         let (save_dir, state_dir) = if let Ok(project_dirs) = project_dirs() {
@@ -84,11 +113,12 @@ impl Default for Config {
                     .to_owned(),
             )
         } else {
+            log::warn!("Cannot get project directory. Defaults to `save` and `state`");
             (PathBuf::from("save"), PathBuf::from("state"))
         };
 
-        fs::create_dir_all(&save_dir).unwrap();
-        fs::create_dir_all(&state_dir).unwrap();
+        create_dir_all(&save_dir).unwrap();
+        create_dir_all(&state_dir).unwrap();
 
         Self {
             save_dir,
@@ -106,11 +136,26 @@ impl Default for Config {
     }
 }
 
+fn config_dir() -> Result<PathBuf> {
+    let config_dir = if let Ok(project_dirs) = project_dirs() {
+        project_dirs.config_dir().to_owned()
+    } else {
+        log::warn!("Cannot find project directory. Defaults to `config`");
+        Path::new("config").to_owned()
+    };
+    create_dir_all(&config_dir)?;
+    Ok(config_dir)
+}
+
+fn config_path() -> Result<PathBuf> {
+    Ok(config_dir()?.join("config.json"))
+}
+
 impl Config {
-    pub fn save(&self) -> Result<()> {
+    pub async fn save(&self) -> Result<()> {
         let s = serde_json::to_string_pretty(self)?;
         let path = config_path()?;
-        fs::write(&path, s)?;
+        write(&path, s).await?;
         info!("Saved config file: {:?}", path.display());
         Ok(())
     }
@@ -141,21 +186,8 @@ impl Config {
     }
 }
 
-fn project_dirs() -> Result<ProjectDirs> {
-    let ret = ProjectDirs::from("", "", "meru")
-        .ok_or_else(|| anyhow!("Cannot find project directory"))?;
-    Ok(ret)
-}
-
-fn config_path() -> Result<PathBuf> {
-    let project_dirs = project_dirs()?;
-    let config_dir = project_dirs.config_dir();
-    fs::create_dir_all(config_dir)?;
-    Ok(config_dir.join("config.json"))
-}
-
-pub fn load_config() -> Result<Config> {
-    let ret = if let Ok(s) = std::fs::read_to_string(config_path()?) {
+pub async fn load_config() -> Result<Config> {
+    let ret = if let Ok(s) = read_to_string(config_path()?).await {
         serde_json::from_str(&s).map_err(|e| anyhow!("{}", e))?
     } else {
         Config::default()
@@ -165,39 +197,57 @@ pub fn load_config() -> Result<Config> {
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct PersistentState {
-    pub recent: VecDeque<PathBuf>,
+    pub recent: VecDeque<RecentFile>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RecentFile {
+    pub path: PathBuf,
+    #[cfg(target_arch = "wasm32")]
+    pub data: Vec<u8>,
 }
 
 impl Drop for PersistentState {
     fn drop(&mut self) {
-        let s = serde_json::to_string_pretty(self).unwrap();
-        fs::write(persistent_state_path().unwrap(), s).unwrap();
+        let fut = self.save();
+        AsyncComputeTaskPool::get().spawn_local(async move {
+            fut.await?;
+            Ok::<(), anyhow::Error>(())
+        });
     }
 }
 
 impl PersistentState {
-    pub fn add_recent(&mut self, path: impl AsRef<Path>) {
-        let path = path.as_ref().to_owned();
-        if self.recent.contains(&path) {
-            self.recent.retain(|p| p != &path);
-        }
-        self.recent.push_front(path);
+    pub fn add_recent(&mut self, recent: RecentFile) {
+        self.recent.retain(|r| r.path != recent.path);
+        self.recent.push_front(recent);
         while self.recent.len() > 20 {
             self.recent.pop_back();
+        }
+    }
+
+    pub fn save(&self) -> impl Future<Output = Result<()>> {
+        let s = bincode::serialize(self).unwrap();
+        async move {
+            write(persistent_state_path().unwrap(), s).await?;
+            Ok::<(), anyhow::Error>(())
         }
     }
 }
 
 fn persistent_state_path() -> Result<PathBuf> {
-    let project_dirs = project_dirs()?;
-    let config_dir = project_dirs.config_dir();
-    fs::create_dir_all(config_dir)?;
+    let config_dir = config_dir()?;
+    create_dir_all(&config_dir)?;
     Ok(config_dir.join("state.json"))
 }
 
-pub fn load_persistent_state() -> Result<PersistentState> {
-    let ret = if let Ok(s) = std::fs::read_to_string(persistent_state_path()?) {
-        serde_json::from_str(&s).map_err(|e| anyhow!("{}", e))?
+pub async fn load_persistent_state() -> Result<PersistentState> {
+    let ret = if let Ok(s) = read(persistent_state_path()?).await {
+        if let Ok(ret) = bincode::deserialize(&s) {
+            ret
+        } else {
+            Default::default()
+        }
     } else {
         Default::default()
     };

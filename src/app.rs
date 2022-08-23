@@ -4,6 +4,7 @@ use bevy::{
     input::{mouse::MouseButtonInput, ButtonState},
     prelude::*,
     render::texture::{ImageSampler, ImageSettings},
+    tasks::{AsyncComputeTaskPool, TaskPool},
     window::{PresentMode, WindowMode},
 };
 use bevy_easings::EasingsPlugin;
@@ -20,14 +21,6 @@ use crate::{
 };
 
 pub fn main() -> Result<()> {
-    let config = match load_config() {
-        Ok(config) => config,
-        Err(err) => {
-            error!("Load config failed: {err}");
-            config::Config::default()
-        }
-    };
-
     let mut app = App::new();
     app.insert_resource(WindowDescriptor {
         title: "MERU".to_string(),
@@ -45,6 +38,7 @@ pub fn main() -> Result<()> {
         level: bevy::utils::tracing::Level::WARN,
         filter: "".to_string(),
     })
+    .insert_resource(AsyncComputeTaskPool::init(TaskPool::new))
     .insert_resource(ImageSettings {
         default_sampler: ImageSampler::nearest_descriptor(),
     })
@@ -66,14 +60,31 @@ pub fn main() -> Result<()> {
     .add_startup_system(setup_audio.exclusive_system())
     .add_startup_system(setup)
     .add_startup_stage("single-startup", SystemStage::single_threaded())
-    .add_startup_system_to_stage("single-startup", set_window_icon);
+    .add_startup_system_to_stage("single-startup", set_window_icon)
+    .add_state(AppState::Menu);
 
-    app.add_state(AppState::Menu);
+    let fut = async move {
+        let config = match load_config().await {
+            Ok(config) => config,
+            Err(err) => {
+                error!("Load config failed: {err}");
+                config::Config::default()
+            }
+        };
 
-    app.insert_resource(config);
-    app.insert_resource(load_persistent_state()?);
+        app.insert_resource(config);
+        app.insert_resource(load_persistent_state().await?);
 
-    app.run();
+        app.run();
+        Ok::<(), anyhow::Error>(())
+    };
+
+    AsyncComputeTaskPool::get().spawn_local(async move {
+        if let Err(err) = fut.await {
+            log::error!("Error: {err:?}");
+        }
+    });
+
     Ok(())
 }
 
@@ -366,7 +377,12 @@ fn fps_system(
         };
     let fps = format!("{fps:5.02}");
     text.sections[0].value = fps.chars().take(5).collect();
-    *transform = Transform::from_xyz((screen_width / 2 - 30) as _, (screen_height / 2) as _, 2.0);
+
+    *transform = Transform::from_xyz(
+        ((screen_width / 2).max(30) - 30) as _,
+        (screen_height / 2) as _,
+        2.0,
+    );
 
     let mut p1 = ps.p1();
     let (mut visibility, mut transform) = p1.single_mut();
