@@ -1,4 +1,4 @@
-use bevy::{prelude::*, tasks::AsyncComputeTaskPool};
+use bevy::prelude::*;
 use bevy_egui::{egui, EguiContext};
 use cfg_if::cfg_if;
 use enum_iterator::all;
@@ -69,7 +69,7 @@ fn setup_menu_system(
 
 fn menu_exit(config: Res<Config>) {
     let config = config.clone();
-    AsyncComputeTaskPool::get().spawn_local(async move { config.save().await });
+    async_std::task::block_on(async move { config.save().await.unwrap() });
 }
 
 fn menu_event_system(
@@ -93,11 +93,15 @@ fn menu_event_system(
                     data: data.clone(),
                 };
 
-                AsyncComputeTaskPool::get().spawn_local(async move {
+                let fut = async move {
                     info!("Opening file: {:?}", path);
                     let result = Emulator::try_new_from_bytes(&path, data, &config).await;
                     send.send(MenuEvent::OpenRomDone { recent, result }).await?;
                     Ok::<(), anyhow::Error>(())
+                };
+
+                async_std::task::block_on(async move {
+                    fut.await.unwrap();
                 });
             }
             MenuEvent::OpenRomDone { recent, result } => match result {
@@ -106,12 +110,9 @@ fn menu_event_system(
 
                     persistent_state.add_recent(recent);
                     let fut = persistent_state.save();
-                    AsyncComputeTaskPool::get()
-                        .spawn_local(async move {
-                            fut.await?;
-                            Ok::<(), anyhow::Error>(())
-                        })
-                        .detach();
+                    async_std::task::block_on(async move {
+                        fut.await.unwrap();
+                    });
                     app_state.set(AppState::Running).unwrap();
                 }
                 Err(err) => {
@@ -734,7 +735,7 @@ fn menu_system(
         }
 
         let config = config.clone();
-        AsyncComputeTaskPool::get().spawn_local(async move {
+        async_std::task::block_on(async move {
             config.save().await.unwrap();
         });
     }
@@ -819,7 +820,7 @@ fn tab_file(
 
                 cfg_if! {
                     if #[cfg(target_arch = "wasm32")] {
-                        wasm_bindgen_futures::spawn_local(async move {
+                        async_std::task::block_on(async move {
                             let filter = file_dialog_filters();
                             let filter_ref = filter
                                 .iter()

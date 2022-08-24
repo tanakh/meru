@@ -4,7 +4,6 @@ use bevy::{
     input::{mouse::MouseButtonInput, ButtonState},
     prelude::*,
     render::texture::{ImageSampler, ImageSettings},
-    tasks::{AsyncComputeTaskPool, TaskPool},
     window::{PresentMode, WindowMode},
 };
 use bevy_easings::EasingsPlugin;
@@ -20,7 +19,7 @@ use crate::{
     rewinding::{self},
 };
 
-pub fn main() -> Result<()> {
+pub async fn main() {
     let mut app = App::new();
     app.insert_resource(WindowDescriptor {
         title: "MERU".to_string(),
@@ -38,7 +37,6 @@ pub fn main() -> Result<()> {
         level: bevy::utils::tracing::Level::WARN,
         filter: "".to_string(),
     })
-    .insert_resource(AsyncComputeTaskPool::init(TaskPool::new))
     .insert_resource(ImageSettings {
         default_sampler: ImageSampler::nearest_descriptor(),
     })
@@ -57,7 +55,6 @@ pub fn main() -> Result<()> {
     .add_system(window_control_event)
     .insert_resource(LastClicked(0.0))
     .add_system(process_double_click)
-    .add_startup_system(setup_audio.exclusive_system())
     .add_startup_system(setup)
     .add_startup_stage("single-startup", SystemStage::single_threaded())
     .add_startup_system_to_stage("single-startup", set_window_icon)
@@ -79,13 +76,7 @@ pub fn main() -> Result<()> {
         Ok::<(), anyhow::Error>(())
     };
 
-    AsyncComputeTaskPool::get().spawn_local(async move {
-        if let Err(err) = fut.await {
-            log::error!("Error: {err:?}");
-        }
-    });
-
-    Ok(())
+    fut.await.unwrap();
 }
 
 #[derive(Component)]
@@ -147,17 +138,6 @@ fn set_window_icon(windows: NonSend<bevy::winit::WinitWindows>) {
 
 #[cfg(not(target_os = "windows"))]
 fn set_window_icon() {}
-
-pub fn setup_audio(world: &mut World) {
-    let (stream, stream_handle) =
-        rodio::OutputStream::try_default().expect("No audio output device available");
-
-    let sink = rodio::Sink::try_new(&stream_handle).expect("Failed to create audio sink");
-
-    world.insert_non_send_resource(stream);
-    world.insert_resource(stream_handle);
-    world.insert_resource(sink);
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AppState {

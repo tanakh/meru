@@ -24,10 +24,16 @@ tgba = { path = "tgba", version = "0.2.0" }
 
 anyhow = "=1.0.59"
 async-channel = "1.7.1"
+async-std = { version = "1.12.0", features = ["attribute"] }
 bincode = "1.3.3"
-bevy = { version = "0.8.0", features = ["serialize"] }
+bevy = { version = "0.8.1", default-features = false, features = [
+    "bevy_audio",
+    "bevy_gilrs",
+    "bevy_winit",
+    "render",
+] }
 bevy_easings = "0.8.1"
-bevy_egui = "0.15.1"
+bevy_egui = "0.16.0"
 bevy_tiled_camera = "0.4.0"
 cfg-if = "1.0.0"
 chrono = "0.4.22"
@@ -46,18 +52,17 @@ winit = "0.26"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 compress-tools = "0.13.0"
-futures = { version = "0.3.23", features = ["thread-pool"] }
+futures = { version = "0.3.23" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 chrono = "0.4.22"
 indexed_db_futures = "0.2.3"
 js-sys = "0.3.59"
 wasm-bindgen = { version = "0.2.82", features = ["serde-serialize"] }
-wasm-bindgen-futures = "0.4.32"
 web-sys = "0.3.59"
 zip = { version = "0.6.2", default-features = false, features = ["deflate"] }
 
-[target.'cfg(windows)'.build-dependencies]
+[build-dependencies]
 winres = "0.1"
 
 [package.metadata.vcpkg]

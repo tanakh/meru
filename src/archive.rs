@@ -3,15 +3,15 @@ mod inner {
     use anyhow::Result;
     use std::io::{Read, Seek, SeekFrom};
 
-    trait ReadSeek: Read + Seek {}
-    impl<T: Read + Seek> ReadSeek for T {}
+    pub trait ReadSeek: Read + Seek + Send + 'static {}
+    impl<T: Read + Seek + Send + 'static> ReadSeek for T {}
 
     pub struct Archive {
         source: Box<dyn ReadSeek>,
     }
 
     impl Archive {
-        pub fn new(source: impl Read + Seek + 'static) -> Result<Self> {
+        pub fn new(source: impl ReadSeek) -> Result<Self> {
             Ok(Self {
                 source: Box::new(source),
             })
@@ -37,15 +37,15 @@ mod inner {
     use std::io::{Read, Seek};
     use zip::ZipArchive;
 
-    trait ReadSeek: Read + Seek {}
-    impl<T: Read + Seek> ReadSeek for T {}
+    pub trait ReadSeek: Read + Seek + Send + 'static {}
+    impl<T: Read + Seek + Send + 'static> ReadSeek for T {}
 
     pub struct Archive {
         zip: ZipArchive<Box<dyn ReadSeek>>,
     }
 
     impl Archive {
-        pub fn new(reader: impl Read + Seek + 'static) -> Result<Self> {
+        pub fn new(reader: impl ReadSeek) -> Result<Self> {
             let reader = Box::new(reader) as Box<dyn ReadSeek>;
             let zip = ZipArchive::new(reader)?;
             Ok(Self { zip })

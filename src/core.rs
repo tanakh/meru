@@ -2,7 +2,6 @@ use anyhow::{anyhow, bail, Result};
 use bevy::{
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
-    tasks::AsyncComputeTaskPool,
 };
 use bevy_tiled_camera::{TiledCamera, TiledCameraBundle};
 use meru_interface::{
@@ -191,10 +190,7 @@ pub struct Emulator {
 impl Drop for Emulator {
     fn drop(&mut self) {
         let fut = self.save_backup();
-        AsyncComputeTaskPool::get().spawn_local(async {
-            fut.await?;
-            Ok::<(), anyhow::Error>(())
-        });
+        async_std::task::block_on(async { fut.await.unwrap() });
     }
 }
 
@@ -370,6 +366,9 @@ impl Plugin for EmulatorPlugin {
                     .with_system(emulator_input_system.label("input")),
             )
             .add_system_set(
+                SystemSet::on_enter(AppState::Running).with_system(setup_audio.exclusive_system()),
+            )
+            .add_system_set(
                 SystemSet::on_enter(AppState::Running).with_system(setup_emulator_system),
             )
             .add_system_set(
@@ -401,6 +400,17 @@ pub fn emulator_input_system(
             &input_gamepad_button,
             &input_gamepad_axis,
         ));
+}
+
+fn setup_audio(world: &mut World) {
+    let (stream, stream_handle) =
+        rodio::OutputStream::try_default().expect("No audio output device available");
+
+    let sink = rodio::Sink::try_new(&stream_handle).expect("Failed to create audio sink");
+
+    world.insert_non_send_resource(stream);
+    world.insert_resource(stream_handle);
+    world.insert_resource(sink);
 }
 
 pub struct GameScreen(pub Handle<Image>);
@@ -512,7 +522,7 @@ fn emulator_system(
     mut emulator: ResMut<Emulator>,
     mut images: ResMut<Assets<Image>>,
     input: Res<InputData>,
-    audio_sink: ResMut<rodio::Sink>,
+    audio_sink: Res<rodio::Sink>,
     is_turbo: Res<hotkey::IsTurbo>,
 ) {
     emulator.core.set_input(&*input);
@@ -607,7 +617,7 @@ fn emulator_system(
 
     if emulator.prev_backup_saved_frame + 60 * 60 <= emulator.frames {
         let fut = emulator.save_backup();
-        AsyncComputeTaskPool::get().spawn_local(async move { fut.await });
+        async_std::task::block_on(async move { fut.await.unwrap() });
     }
 }
 

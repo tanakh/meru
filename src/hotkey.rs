@@ -1,4 +1,4 @@
-use bevy::{prelude::*, tasks::AsyncComputeTaskPool};
+use bevy::prelude::*;
 use either::Either;
 use enum_iterator::{all, Sequence};
 use serde::{Deserialize, Serialize};
@@ -141,7 +141,7 @@ fn process_hotkey(
                 if let Some(emulator) = &emulator {
                     let fut = emulator.save_state_slot(ui_state.state_save_slot, config.as_ref());
 
-                    AsyncComputeTaskPool::get().spawn_local(async move { fut.await.unwrap() });
+                    async_std::task::block_on(async move { fut.await.unwrap() });
 
                     message_event.send(ShowMessage(format!(
                         "State saved: #{}",
@@ -155,10 +155,11 @@ fn process_hotkey(
 
                     let fut = emulator.load_state_slot(ui_state.state_save_slot, config.as_ref());
 
-                    AsyncComputeTaskPool::get().spawn_local(async move {
+                    async_std::task::block_on(async move {
                         let result = fut.await;
-                        send.send(Right(HotKeyCont::StateLoadDone(result))).await?;
-                        Ok::<(), anyhow::Error>(())
+                        send.send(Right(HotKeyCont::StateLoadDone(result)))
+                            .await
+                            .unwrap();
                     });
                 }
             }

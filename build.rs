@@ -1,12 +1,10 @@
-#[cfg(windows)]
-extern crate winres;
-
-#[cfg(windows)]
 fn main() {
-    let mut res = winres::WindowsResource::new();
-    res.set_icon("assets/meru.ico");
-    res.compile().unwrap();
-}
+    let target_os =
+        std::env::var("CARGO_CFG_TARGET_OS").expect("CARGO_CFG_TARGET_OS is set by cargo.");
 
-#[cfg(unix)]
-fn main() {}
+    if target_os == "windows" {
+        let mut res = winres::WindowsResource::new();
+        res.set_icon("assets/meru.ico");
+        res.compile().unwrap();
+    }
+}

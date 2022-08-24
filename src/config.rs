@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Result};
-use bevy::tasks::AsyncComputeTaskPool;
 use enum_iterator::Sequence;
 use log::info;
 use meru_interface::EmulatorCore;
@@ -205,16 +204,6 @@ pub struct RecentFile {
     pub path: PathBuf,
     #[cfg(target_arch = "wasm32")]
     pub data: Vec<u8>,
-}
-
-impl Drop for PersistentState {
-    fn drop(&mut self) {
-        let fut = self.save();
-        AsyncComputeTaskPool::get().spawn_local(async move {
-            fut.await?;
-            Ok::<(), anyhow::Error>(())
-        });
-    }
 }
 
 impl PersistentState {

@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 
-fn main() -> anyhow::Result<()> {
-    meru::app::main()
+#[async_std::main]
+async fn main() {
+    meru::app::main().await;
 }
