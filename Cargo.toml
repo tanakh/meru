@@ -24,7 +24,7 @@ tgba = { path = "tgba", version = "0.2.0" }
 
 anyhow = "=1.0.59"
 async-channel = "1.7.1"
-async-std = { version = "1.12.0", features = ["attribute"] }
+async-std = { version = "1.12.0", features = ["attributes"] }
 bincode = "1.3.3"
 bevy = { version = "0.8.1", default-features = false, features = [
     "bevy_audio",
@@ -44,11 +44,11 @@ image = { version = "0.24.3", default-features = false, features = ["ico"] }
 log = "0.4.17"
 rfd = "0.10.0"
 rodio = { version = "0.15.0", default-features = false }
-serde = { version = "1.0.143", features = ["derive"] }
-serde_json = "1.0.83"
+serde = { version = "1.0.144", features = ["derive"] }
+serde_json = "1.0.85"
 thiserror = "1.0.32"
 tempfile = "3.3.0"
-winit = "0.26"
+winit = "0.26" # bevy_winit-0.8.1 depends on 0.25.x
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 compress-tools = "0.13.0"

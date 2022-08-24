@@ -1,4 +1,3 @@
-use anyhow::Result;
 use bevy::{
     diagnostic::{Diagnostics, FrameTimeDiagnosticsPlugin},
     input::{mouse::MouseButtonInput, ButtonState},

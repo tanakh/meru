@@ -173,9 +173,6 @@ impl Default for MenuState {
 
 impl MenuState {
     fn tab_selector(&mut self, ui: &mut egui::Ui, emulator_loaded: bool) {
-        ui.heading("Main Menu");
-        ui.separator();
-
         ui.selectable_value(&mut self.tab, MenuTab::File, "📁 File");
 
         ui.add_enabled_ui(emulator_loaded, |ui| {
@@ -789,7 +786,14 @@ async fn file_dialog(
 
     if let Some(file) = file {
         let data = file.read().await;
-        Some((PathBuf::from(file.file_name()), data))
+
+        cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                Some((PathBuf::from(file.file_name()), data))
+            } else {
+                Some((file.path().to_owned(), data))
+            }
+        }
     } else {
         None
     }
@@ -803,100 +807,87 @@ fn tab_file(
     menu_event: &Sender<MenuEvent>,
     menu_error: &mut Option<MenuError>,
 ) {
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-            if let Some(emulator) = &emulator {
-                ui.label(format!("Running `{}`", emulator.game_name));
-                if ui.button("Resume").clicked() {
-                    app_state.set(AppState::Running).unwrap();
-                }
-                ui.separator();
+    let f = |ui: &mut egui::Ui| {
+        if let Some(emulator) = &emulator {
+            ui.label(format!("Running `{}`", emulator.game_name));
+            if ui.button("Resume").clicked() {
+                app_state.set(AppState::Running).unwrap();
             }
-
-            ui.label("Load ROM");
-            if ui.button("Open File").clicked() {
-
-                let menu_event = menu_event.clone();
-
-                cfg_if! {
-                    if #[cfg(target_arch = "wasm32")] {
-                        async_std::task::block_on(async move {
-                            let filter = file_dialog_filters();
-                            let filter_ref = filter
-                                .iter()
-                                .map(|(name, exts)| {
-                                    let exts = exts.iter().map(|r| r.as_str()).collect::<Vec<_>>();
-                                    (name.as_ref(), exts)
-                                })
-                                .collect::<Vec<_>>();
-                            let filter_ref = filter_ref
-                                .iter()
-                                .map(|(key, filter)| (*key, filter.as_slice()))
-                                .collect::<Vec<_>>();
-
-                            if let Some((path, data)) = file_dialog(None, &filter_ref, false).await {
-                                menu_event.try_send(MenuEvent::OpenRomFile{
-                                    path, data
-                                }).unwrap();
-                            }
-                        });
-                    } else {
-                        futures::executor::block_on(async move {
-                            let filter = file_dialog_filters();
-                            let filter_ref = filter
-                                .iter()
-                                .map(|(name, exts)| {
-                                    let exts = exts.iter().map(|r| r.as_str()).collect::<Vec<_>>();
-                                    (name.as_ref(), exts)
-                                })
-                                .collect::<Vec<_>>();
-                            let filter_ref = filter_ref
-                                .iter()
-                                .map(|(key, filter)| (*key, filter.as_slice()))
-                                .collect::<Vec<_>>();
-
-                            if let Some((path, data)) = file_dialog(None, &filter_ref, false).await {
-                                menu_event.try_send(MenuEvent::OpenRomFile {
-                                    path, data
-                                }).unwrap();
-                            }
-                        });
-
-                    }
-                }
-            }
-
             ui.separator();
-            ui.label("Recent Files");
+        }
 
-            for recent in &persistent_state.recent {
-                if ui
-                    .button(recent.path.file_name().unwrap().to_string_lossy().to_string())
-                    .clicked()
-                {
-                    #[cfg(not(target_arch = "wasm32"))]
-                    let data = {
-                        match std::fs::read(&recent.path) {
-                            Ok(data) => data,
-                            Err(err) => {
-                                *menu_error = Some(MenuError {
-                                    title: "Failed to open ROM XXX".into(),
-                                    message: err.to_string(),
-                                });
-                                continue;
-                            }
-                        }
-                    };
+        ui.label("Load ROM");
+        if ui.button("Open File").clicked() {
+            let menu_event = menu_event.clone();
 
-                    #[cfg(target_arch = "wasm32")]
-                    let data = recent.data.clone();
+            async_std::task::block_on(async move {
+                let filter = file_dialog_filters();
+                let filter_ref = filter
+                    .iter()
+                    .map(|(name, exts)| {
+                        let exts = exts.iter().map(|r| r.as_str()).collect::<Vec<_>>();
+                        (name.as_ref(), exts)
+                    })
+                    .collect::<Vec<_>>();
+                let filter_ref = filter_ref
+                    .iter()
+                    .map(|(key, filter)| (*key, filter.as_slice()))
+                    .collect::<Vec<_>>();
 
-                    let path = recent.path.clone();
-
-                    menu_event.try_send(MenuEvent::OpenRomFile { path, data }).unwrap();
+                if let Some((path, data)) = file_dialog(None, &filter_ref, false).await {
+                    log::warn!("Menu open: {}", path.display());
+                    menu_event
+                        .try_send(MenuEvent::OpenRomFile { path, data })
+                        .unwrap();
                 }
+            });
+        }
+
+        ui.separator();
+        ui.label("Recent Files");
+
+        for recent in &persistent_state.recent {
+            if ui
+                .button(
+                    recent
+                        .path
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .to_string(),
+                )
+                .clicked()
+            {
+                #[cfg(not(target_arch = "wasm32"))]
+                let data = {
+                    log::warn!("Open File from history: {}", recent.path.display());
+
+                    match std::fs::read(&recent.path) {
+                        Ok(data) => data,
+                        Err(err) => {
+                            *menu_error = Some(MenuError {
+                                title: "Failed to open ROM XXX".into(),
+                                message: err.to_string(),
+                            });
+                            continue;
+                        }
+                    }
+                };
+
+                #[cfg(target_arch = "wasm32")]
+                let data = recent.data.clone();
+
+                let path = recent.path.clone();
+
+                menu_event
+                    .try_send(MenuEvent::OpenRomFile { path, data })
+                    .unwrap();
             }
-        });
+        }
+    };
+
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), f);
     });
 }
 
