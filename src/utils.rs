@@ -1,4 +1,12 @@
+use async_std::task;
+use cfg_if::cfg_if;
+use std::future::Future;
 use std::ops::Deref;
+
+pub fn unbounded_channel<T>() -> (Sender<T>, Receiver<T>) {
+    let (s, r) = async_channel::unbounded();
+    (Sender::new(s), Receiver::new(r))
+}
 
 pub struct Sender<T>(async_channel::Sender<T>);
 
@@ -35,5 +43,16 @@ impl<T> Deref for Receiver<T> {
 impl<T> Receiver<T> {
     pub fn new(receiver: async_channel::Receiver<T>) -> Self {
         Self(receiver)
+    }
+}
+
+pub fn block_on(f: impl Future<Output = ()> + 'static) {
+    cfg_if! {
+        if #[cfg(target_arch = "wasm32")] {
+            // On wasm, astnc_std::task::block_on does not block.
+            task::block_on(f);
+        } else {
+            task::block_on(f)
+        }
     }
 }

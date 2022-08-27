@@ -4,9 +4,10 @@ use bevy::{
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 use bevy_tiled_camera::{TiledCamera, TiledCameraBundle};
-use meru_interface::{
-    AudioBuffer, ConfigUi, CoreInfo, EmulatorCore, FrameBuffer, InputData, KeyConfig,
-};
+use chrono::{DateTime, Local};
+use meru_interface::{AudioBuffer, CoreInfo, EmulatorCore, FrameBuffer, InputData, KeyConfig};
+use schemars::{schema::RootSchema, schema_for};
+use serde_json::Value;
 use std::{
     collections::VecDeque,
     future::Future,
@@ -19,11 +20,11 @@ use crate::{
     app::{AppState, ScreenSprite, WindowControlEvent},
     archive::Archive,
     config::Config,
-    file::{load_backup, load_state, save_backup, save_state},
+    file::{get_state_file_path, load_backup, load_state, modified, save_backup, save_state},
     hotkey,
     input::InputState,
-    menu::EguiUi,
     rewinding::AutoSavedState,
+    utils::block_on,
 };
 
 macro_rules! def_emulator_cores {
@@ -34,7 +35,7 @@ macro_rules! def_emulator_cores {
             )*
         }
 
-        const EMULATOR_CORES: &[EmulatorCores] = &[
+        pub const EMULATOR_CORES: &[EmulatorCores] = &[
             $(
                 EmulatorCores::$constr(PhantomData),
             )*
@@ -74,11 +75,31 @@ def_emulator_cores!(
 );
 
 impl EmulatorCores {
-    fn core_info(&self) -> &CoreInfo {
+    pub fn from_abbrev(abbrev: &str) -> Option<&'static Self> {
+        EMULATOR_CORES
+            .iter()
+            .find(|core| core.core_info().abbrev == abbrev)
+    }
+
+    pub fn core_info(&self) -> &CoreInfo {
         fn core_info<T: EmulatorCore>(_: &PhantomData<T>) -> &'static CoreInfo {
             T::core_info()
         }
         dispatch_enum!(EmulatorCores, self, core, core_info(core))
+    }
+
+    pub fn default_config(&self) -> Value {
+        fn default_config<T: EmulatorCore>(_: &PhantomData<T>) -> Value {
+            serde_json::to_value(T::Config::default()).unwrap()
+        }
+        dispatch_enum!(EmulatorCores, self, core, default_config(core))
+    }
+
+    pub fn config_schema(&self) -> RootSchema {
+        fn config_schema<T: EmulatorCore>(_: &PhantomData<T>) -> RootSchema {
+            schema_for!(T::Config)
+        }
+        dispatch_enum!(EmulatorCores, self, core, config_schema(core))
     }
 }
 
@@ -96,7 +117,8 @@ async fn make_core_from_data<T: EmulatorCore + Into<EmulatorEnum>>(
 
     let fut = async {
         let backup = load_backup(core_info.abbrev, name, &config.save_dir).await?;
-        let core = T::try_from_file(data, backup.as_deref(), &config.core_config::<T>())?;
+        let config = serde_json::from_value(config.core_config(T::core_info().abbrev).clone())?;
+        let core = T::try_from_file(data, backup.as_deref(), &config)?;
         Ok(core.into())
     };
 
@@ -139,11 +161,16 @@ impl EmulatorEnum {
         dispatch_enum!(EmulatorEnum, self, core, core.backup())
     }
 
-    pub fn set_config(&mut self, config: &Config) {
-        fn set_config<T: EmulatorCore>(core: &mut T, config: &Config) {
-            core.set_config(&config.core_config::<T>());
+    pub fn set_config(&mut self, core_config: &Value) {
+        fn set_config<T: EmulatorCore>(core: &mut T, config: &Value) {
+            core.set_config(&serde_json::from_value::<T::Config>(config.clone()).unwrap());
         }
-        dispatch_enum!(EmulatorEnum, self, core, set_config(core.as_mut(), config));
+        dispatch_enum!(
+            EmulatorEnum,
+            self,
+            core,
+            set_config(core.as_mut(), core_config)
+        );
     }
 
     pub fn reset(&mut self) {
@@ -180,6 +207,7 @@ pub struct Emulator {
     pub core: EmulatorEnum,
     pub game_name: String,
     pub auto_saved_states: VecDeque<AutoSavedState>,
+    pub state_files: Vec<Option<StateFile>>,
     total_auto_saved_size: usize,
     prev_auto_saved_frame: usize,
     prev_backup_saved_frame: usize,
@@ -187,10 +215,14 @@ pub struct Emulator {
     frames: usize,
 }
 
+pub struct StateFile {
+    pub modified: DateTime<Local>,
+}
+
 impl Drop for Emulator {
     fn drop(&mut self) {
         let fut = self.save_backup();
-        async_std::task::block_on(async { fut.await.unwrap() });
+        block_on(async { fut.await.unwrap() });
     }
 }
 
@@ -216,22 +248,29 @@ async fn try_make_emulator(path: &Path, data: &[u8], config: &Config) -> Result<
 
     let core = EmulatorEnum::try_new(&name, &ext, &data, config).await?;
 
+    let mut state_files = vec![];
+
+    for i in 0..10 {
+        let state_file_path =
+            get_state_file_path(core.core_info().abbrev, &name, i, &config.save_dir)?;
+        let state_file = modified(&state_file_path)
+            .await
+            .map(|modified| StateFile { modified })
+            .ok();
+        state_files.push(state_file);
+    }
+
     Ok(Emulator {
         core,
         game_name: name.to_string(),
         auto_saved_states: VecDeque::new(),
+        state_files,
         total_auto_saved_size: 0,
         prev_auto_saved_frame: 0,
         prev_backup_saved_frame: 0,
         save_dir: config.save_dir.clone(),
         frames: 0,
     })
-}
-
-fn config_ui<T: EmulatorCore>(_: &PhantomData<T>, ui: &mut EguiUi, config: &mut Config) {
-    let mut core_config = config.core_config::<T>();
-    core_config.ui(ui);
-    config.set_core_config::<T>(core_config);
 }
 
 impl Emulator {
@@ -241,14 +280,6 @@ impl Emulator {
             ret.push(core.core_info());
         }
         ret
-    }
-
-    pub fn config_ui(ui: &mut EguiUi, abbrev: &str, config: &mut Config) {
-        for core in EMULATOR_CORES.iter() {
-            if core.core_info().abbrev == abbrev {
-                dispatch_enum!(EmulatorCores, core, core, config_ui(core, ui, config));
-            }
-        }
     }
 
     pub fn default_key_config(abbrev: &str) -> KeyConfig {
@@ -268,6 +299,8 @@ impl Emulator {
             let data = Cursor::new(data);
             let mut archive = Archive::new(data)?;
 
+            let mut ret = anyhow!("File does not contain a supported file");
+
             for file in archive.file_names()? {
                 let path = Path::new(&file);
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -275,13 +308,13 @@ impl Emulator {
                     continue;
                 }
                 let data = archive.uncompress_file(&file)?;
-                let res = try_make_emulator(Path::new(&file), &data, config).await;
-                if res.is_ok() {
-                    return res;
+                match try_make_emulator(Path::new(&file), &data, config).await {
+                    Ok(ret) => return Ok(ret),
+                    Err(e) => ret = e,
                 }
             }
 
-            bail!("File does not contain a supported file");
+            Err(ret)
         } else {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !EmulatorEnum::exist_supported_core(ext) {
@@ -617,7 +650,7 @@ fn emulator_system(
 
     if emulator.prev_backup_saved_frame + 60 * 60 <= emulator.frames {
         let fut = emulator.save_backup();
-        async_std::task::block_on(async move { fut.await.unwrap() });
+        block_on(async move { fut.await.unwrap() });
     }
 }
 

@@ -68,7 +68,7 @@ mod filesystem {
     async fn open_db() -> Result<IdbDatabase, DomException> {
         let mut db_req: OpenDbRequest = IdbDatabase::open_u32("meru", 1)?;
         db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-            const STORES: &[&str] = &["save", "state", "config"];
+            const STORES: &[&str] = &["save", "config", "data"];
             for store in STORES {
                 if let None = evt.db().object_store_names().find(|n| n == store) {
                     evt.db().create_object_store(store)?;
@@ -177,7 +177,37 @@ mod filesystem {
         path: impl AsRef<Path>,
     ) -> anyhow::Result<DateTime<Local>, FileSystemError> {
         log::warn!("fs: modified: {}", path.as_ref().display());
-        todo!()
+
+        let (store_name, file_name) = parse_path(path.as_ref());
+
+        let db = open_db().await.map_err(|_| FileSystemError::DomException)?;
+
+        let tx: IdbTransaction = db
+            .transaction_on_one_with_mode(&store_name, IdbTransactionMode::Readwrite)
+            .map_err(|_| FileSystemError::DomException)?;
+
+        let store: IdbObjectStore = tx
+            .object_store(&store_name)
+            .map_err(|_| FileSystemError::DomException)?;
+
+        let jsvalue = if let Some(jsvalue) = store
+            .get_owned(&format!("{file_name}.metadata"))
+            .map_err(|_| FileSystemError::DomException)?
+            .await
+            .map_err(|_| FileSystemError::DomException)?
+        {
+            jsvalue
+        } else {
+            Err(FileSystemError::FileNotFound)?
+        };
+
+        let metadata = jsvalue.into_serde::<Metadata>()?;
+
+        tx.await
+            .into_result()
+            .map_err(|_| FileSystemError::DomException)?;
+
+        Ok(metadata.modified.into())
     }
 }
 
@@ -206,7 +236,7 @@ fn get_backup_file_path(core_abbrev: &str, name: &str, save_dir: &Path) -> Resul
     Ok(get_save_dir(core_abbrev, save_dir)?.join(format!("{name}.sav")))
 }
 
-fn get_state_file_path(
+pub fn get_state_file_path(
     core_abbrev: &str,
     name: &str,
     slot: usize,

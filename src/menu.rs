@@ -1,35 +1,32 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContext};
 use cfg_if::cfg_if;
+use chrono::Utc;
 use enum_iterator::all;
-use meru_interface::{MultiKey, SingleKey, Ui};
-use std::path::{Path, PathBuf};
+use meru_interface::{File, MultiKey, SingleKey};
+use schemars::{
+    schema::{InstanceType, RootSchema, Schema, SchemaObject, SingleOrVec},
+    visit::{visit_schema, Visitor},
+};
+use serde_json::Value;
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use crate::{
     app::{AppState, FullscreenState, ShowMessage, WindowControlEvent},
     config::{Config, PersistentState, RecentFile, SystemKey, SystemKeys},
-    core::{Emulator, ARCHIVE_EXTENSIONS},
-    file::state_date,
+    core::{Emulator, StateFile, ARCHIVE_EXTENSIONS, EMULATOR_CORES},
     hotkey::{HotKey, HotKeys},
     input::ConvertInput,
-    utils::{Receiver, Sender},
+    utils::{block_on, unbounded_channel, Receiver, Sender},
 };
 
 pub const MENU_WIDTH: usize = 1280;
 pub const MENU_HEIGHT: usize = 720;
 
 pub struct MenuPlugin;
-
-pub enum MenuEvent {
-    OpenRomFile {
-        path: PathBuf,
-        data: Vec<u8>,
-    },
-    OpenRomDone {
-        recent: RecentFile,
-        result: anyhow::Result<Emulator>,
-    },
-}
 
 impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
@@ -41,6 +38,41 @@ impl Plugin for MenuPlugin {
             )
             .add_system_set(SystemSet::on_exit(AppState::Menu).with_system(menu_exit))
             .add_event::<MenuEvent>();
+    }
+}
+
+pub enum MenuEvent {
+    OpenRomFile {
+        path: PathBuf,
+        data: Vec<u8>,
+    },
+    OpenRomDone {
+        recent: RecentFile,
+        result: anyhow::Result<Emulator>,
+    },
+    StateSaved {
+        slot: usize,
+    },
+    StateLoaded {
+        slot: usize,
+        data: anyhow::Result<Vec<u8>>,
+    },
+}
+
+struct ConfigValue {
+    abbrev: String,
+    value: Value,
+}
+
+struct ConfigChannel {
+    receiver: Receiver<ConfigValue>,
+    sender: Sender<ConfigValue>,
+}
+
+impl ConfigChannel {
+    fn new() -> Self {
+        let (sender, receiver) = unbounded_channel();
+        Self { receiver, sender }
     }
 }
 
@@ -62,23 +94,27 @@ fn setup_menu_system(
     commands.insert_resource(MenuState::default());
     commands.insert_resource(None as Option<MenuError>);
 
-    let (s, r) = async_channel::unbounded();
-    commands.insert_resource(Sender::<MenuEvent>::new(s));
-    commands.insert_resource(Receiver::<MenuEvent>::new(r));
+    let (s, r) = unbounded_channel::<MenuEvent>();
+    commands.insert_resource(s);
+    commands.insert_resource(r);
+
+    commands.insert_resource(ConfigChannel::new());
 }
 
 fn menu_exit(config: Res<Config>) {
     let config = config.clone();
-    async_std::task::block_on(async move { config.save().await.unwrap() });
+    block_on(async move { config.save().await.unwrap() });
 }
 
 fn menu_event_system(
     mut commands: Commands,
+    mut emulator: Option<ResMut<Emulator>>,
     recv: Res<Receiver<MenuEvent>>,
     send: Res<Sender<MenuEvent>>,
     mut app_state: ResMut<State<AppState>>,
     mut persistent_state: ResMut<PersistentState>,
     mut menu_error: ResMut<Option<MenuError>>,
+    mut message_event: EventWriter<ShowMessage>,
     config: Res<Config>,
 ) {
     while let Ok(event) = recv.try_recv() {
@@ -100,7 +136,7 @@ fn menu_event_system(
                     Ok::<(), anyhow::Error>(())
                 };
 
-                async_std::task::block_on(async move {
+                block_on(async move {
                     fut.await.unwrap();
                 });
             }
@@ -110,7 +146,7 @@ fn menu_event_system(
 
                     persistent_state.add_recent(recent);
                     let fut = persistent_state.save();
-                    async_std::task::block_on(async move {
+                    block_on(async move {
                         fut.await.unwrap();
                     });
                     app_state.set(AppState::Running).unwrap();
@@ -122,6 +158,37 @@ fn menu_event_system(
                     });
                 }
             },
+            MenuEvent::StateSaved { slot } => {
+                if let Some(emulator) = emulator.as_deref_mut() {
+                    let state_file = StateFile {
+                        modified: Utc::now().into(),
+                    };
+                    emulator.state_files[slot] = Some(state_file);
+                }
+                message_event.send(ShowMessage(format!("State saved: #{slot}")));
+            }
+            MenuEvent::StateLoaded { slot, data } => {
+                let f = || -> anyhow::Result<()> {
+                    let data = data?;
+                    let emulator = emulator
+                        .as_deref_mut()
+                        .ok_or_else(|| anyhow::anyhow!("No emulator instance"))?;
+                    emulator.load_state_data(&data)?;
+                    Ok(())
+                };
+
+                match f() {
+                    Ok(_) => {
+                        message_event.send(ShowMessage(format!("State loaded: #{slot}")));
+                    }
+                    Err(e) => {
+                        message_event.send(ShowMessage(format!(
+                            "Failed to load state from slot #{slot}: {e}"
+                        )));
+                    }
+                }
+                app_state.set(AppState::Running).unwrap();
+            }
         }
     }
 }
@@ -571,8 +638,8 @@ fn menu_system(
     mut app_state: ResMut<State<AppState>>,
     mut menu_state: ResMut<MenuState>,
     mut emulator: Option<ResMut<Emulator>>,
-    mut menu_event: ResMut<Sender<MenuEvent>>,
-    mut message_event: EventWriter<ShowMessage>,
+    menu_event: Res<Sender<MenuEvent>>,
+    config_channel: Res<ConfigChannel>,
     mut window_control_event: EventWriter<WindowControlEvent>,
     mut menu_error: ResMut<Option<MenuError>>,
     key_code_input: Res<Input<KeyCode>>,
@@ -601,6 +668,19 @@ fn menu_system(
         }
     }
 
+    while let Ok(config_value) = config_channel.receiver.try_recv() {
+        if let Some(emulator) = emulator.as_deref_mut() {
+            if emulator.core.core_info().abbrev == config_value.abbrev {
+                emulator.core.set_config(&config_value.value);
+            }
+        }
+
+        config.set_core_config(&config_value.abbrev, config_value.value);
+
+        let config = config.clone();
+        block_on(async move { config.save().await.unwrap() });
+    }
+
     let old_config = config.clone();
 
     egui::CentralPanel::default().show(egui_ctx.ctx_mut(), |ui| {
@@ -624,19 +704,13 @@ fn menu_system(
                     emulator.as_ref().map(|r| r.as_ref()),
                     app_state.as_mut(),
                     persistent_state.as_ref(),
-                    menu_event.as_mut(),
+                    menu_event.as_ref(),
                     menu_error.as_mut(),
                 );
             }
             MenuTab::State => {
                 if let Some(emulator) = emulator.as_deref_mut() {
-                    tab_state(
-                        ui,
-                        emulator,
-                        config.as_ref(),
-                        app_state.as_mut(),
-                        &mut message_event,
-                    );
+                    tab_state(ui, emulator, config.as_ref(), &menu_event);
                 }
             }
             MenuTab::GameInfo => {
@@ -686,7 +760,8 @@ fn menu_system(
                 ui.heading(format!("{} Settings", core_info.system_name));
                 ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
                     ui.group(|ui| {
-                        Emulator::config_ui(&mut EguiUi(ui), core_info.abbrev, config.as_mut());
+                        let core_config = config.core_config(core_info.abbrev).clone();
+                        core_config_ui(ui, core_info.abbrev, core_config, &config_channel.sender);
                     });
                 });
             }
@@ -728,11 +803,13 @@ fn menu_system(
 
     if &old_config != config.as_ref() {
         if let Some(emulator) = emulator.as_deref_mut() {
-            emulator.core.set_config(config.as_ref());
+            emulator
+                .core
+                .set_config(&config.core_config(emulator.core.core_info().abbrev));
         }
 
         let config = config.clone();
-        async_std::task::block_on(async move {
+        block_on(async move {
             config.save().await.unwrap();
         });
     }
@@ -791,7 +868,7 @@ async fn file_dialog(
             if #[cfg(target_arch = "wasm32")] {
                 Some((PathBuf::from(file.file_name()), data))
             } else {
-                Some((file.path().to_owned(), data))
+                Some((file.path().canonicalize().unwrap(), data))
             }
         }
     } else {
@@ -805,7 +882,7 @@ fn tab_file(
     app_state: &mut State<AppState>,
     persistent_state: &PersistentState,
     menu_event: &Sender<MenuEvent>,
-    menu_error: &mut Option<MenuError>,
+    #[allow(unused_variables)] menu_error: &mut Option<MenuError>,
 ) {
     let f = |ui: &mut egui::Ui| {
         if let Some(emulator) = &emulator {
@@ -820,7 +897,7 @@ fn tab_file(
         if ui.button("Open File").clicked() {
             let menu_event = menu_event.clone();
 
-            async_std::task::block_on(async move {
+            block_on(async move {
                 let filter = file_dialog_filters();
                 let filter_ref = filter
                     .iter()
@@ -835,7 +912,6 @@ fn tab_file(
                     .collect::<Vec<_>>();
 
                 if let Some((path, data)) = file_dialog(None, &filter_ref, false).await {
-                    log::warn!("Menu open: {}", path.display());
                     menu_event
                         .try_send(MenuEvent::OpenRomFile { path, data })
                         .unwrap();
@@ -860,13 +936,11 @@ fn tab_file(
             {
                 #[cfg(not(target_arch = "wasm32"))]
                 let data = {
-                    log::warn!("Open File from history: {}", recent.path.display());
-
                     match std::fs::read(&recent.path) {
                         Ok(data) => data,
                         Err(err) => {
                             *menu_error = Some(MenuError {
-                                title: "Failed to open ROM XXX".into(),
+                                title: "Failed to open ROM".into(),
                                 message: err.to_string(),
                             });
                             continue;
@@ -895,65 +969,58 @@ fn tab_state(
     ui: &mut egui::Ui,
     emulator: &mut Emulator,
     config: &Config,
-    app_state: &mut State<AppState>,
-    message_event: &mut EventWriter<ShowMessage>,
+    menu_event: &Sender<MenuEvent>,
 ) {
     ui.heading("State Save / Load");
 
-    todo!()
+    let grid = |ui: &mut egui::Ui| {
+        for i in 0..10 {
+            ui.label(format!("{}", i));
 
-    // ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-    //     ui.group(|ui| {
-    //         ui.label("Slot");
+            if ui.button("Save").clicked() {
+                let menu_event = menu_event.clone();
+                let fut = emulator.save_state_slot(i, config);
+                block_on(async move {
+                    fut.await.unwrap();
+                    menu_event
+                        .send(MenuEvent::StateSaved { slot: i })
+                        .await
+                        .unwrap();
+                });
+            }
+            ui.add_enabled_ui(emulator.state_files[i].is_some(), |ui| {
+                if ui.button("Load").clicked() {
+                    let menu_event = menu_event.clone();
+                    let fut = emulator.load_state_slot(i, config);
+                    block_on(async move {
+                        let data = fut.await;
+                        menu_event
+                            .send(MenuEvent::StateLoaded { slot: i, data })
+                            .await
+                            .unwrap();
+                    });
+                }
+            });
 
-    //         let grid = |ui: &mut egui::Ui| {
-    //             for i in 0..10 {
-    //                 ui.label(format!("{}", i));
+            ui.label(emulator.state_files[i].as_ref().map_or_else(
+                || "---".to_string(),
+                |state_file| state_file.modified.format("%Y/%m/%d %H:%M:%S").to_string(),
+            ));
+            ui.end_row();
+        }
+    };
 
-    //                 let date = state_date(
-    //                     emulator.core.core_info().abbrev,
-    //                     &emulator.game_name,
-    //                     i,
-    //                     &config.save_dir,
-    //                 )
-    //                 .unwrap();
+    ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+        ui.group(|ui| {
+            ui.label("Slot");
 
-    //                 if ui.button("Save").clicked() {
-    //                     emulator.save_state_slot(i, config).unwrap();
-    //                     message_event.send(ShowMessage(format!("State saved: #{}", i)));
-    //                 }
-    //                 ui.add_enabled_ui(date.is_some(), |ui| {
-    //                     if ui.button("Load").clicked() {
-    //                         match emulator.load_state_slot(i, config) {
-    //                             Ok(_) => {
-    //                                 message_event
-    //                                     .send(ShowMessage(format!("State loaded: #{}", i)));
-    //                             }
-    //                             Err(e) => {
-    //                                 message_event
-    //                                     .send(ShowMessage("Failed to load state".to_string()));
-    //                                 error!("Failed to load state: {}", e);
-    //                             }
-    //                         }
-    //                         app_state.set(AppState::Running).unwrap();
-    //                     }
-    //                 });
-
-    //                 ui.label(date.map_or_else(
-    //                     || "---".to_string(),
-    //                     |date| date.format("%Y/%m/%d %H:%M:%S").to_string(),
-    //                 ));
-    //                 ui.end_row();
-    //             }
-    //         };
-
-    //         egui::Grid::new("state_save")
-    //             .num_columns(4)
-    //             .spacing([40.0, 4.0])
-    //             .striped(true)
-    //             .show(ui, grid);
-    //     });
-    // });
+            egui::Grid::new("state_save")
+                .num_columns(4)
+                .spacing([40.0, 4.0])
+                .striped(true)
+                .show(ui, grid);
+        });
+    });
 }
 
 fn tab_game_info(ui: &mut egui::Ui, emulator: &Emulator) {
@@ -983,12 +1050,16 @@ fn tab_general_setting(ui: &mut egui::Ui, config: &mut ResMut<Config>) {
 
     ui.separator();
 
-    let mut save_dir = Some(config.save_dir.clone());
-    if file_field(ui, "Save file directory:", &mut save_dir, &[], false) {
-        config.save_dir = save_dir.unwrap();
-    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        ui.label("TODO: Save directory");
 
-    ui.separator();
+        // let mut save_dir = Some(config.save_dir.clone());
+        // if file_field(ui, "Save file directory:", &mut save_dir, &[], false) {
+        //     config.save_dir = save_dir.unwrap();
+        // }
+        // ui.separator();
+    }
 
     ui.label("Rewinding:");
 
@@ -1026,27 +1097,70 @@ fn tab_general_setting(ui: &mut egui::Ui, config: &mut ResMut<Config>) {
     // FIXME: reset auto save timing state when changed rewinding setting
 }
 
+pub struct FileFieldResult {
+    file_sent: bool,
+    cleard: bool,
+}
+
+#[derive(Clone, Debug)]
+enum FieldIndex {
+    Object(String),
+    Array(usize),
+}
+
 pub fn file_field(
     ui: &mut egui::Ui,
+    sender: &Sender<(PathBuf, Vec<u8>)>,
     label: &str,
     path: &mut Option<PathBuf>,
     file_filter: &[(&str, &[&str])],
     has_clear: bool,
-) -> bool {
-    let mut ret = false;
+) -> FileFieldResult {
+    let mut file_sent = false;
+    let mut changed = false;
+
     ui.horizontal(|ui| {
         ui.label(label);
         if ui.button("Change").clicked() {
-            ui.label("TODO");
-            // if let Some(new_path) = file_dialog(path.as_ref(), file_filter, file_filter.is_empty())
-            // {
-            //     *path = Some(new_path);
-            //     ret = true;
-            // }
+            file_sent = true;
+
+            let cur_path = path.clone();
+            let file_filter = file_filter
+                .iter()
+                .map(|(name, exts)| {
+                    (
+                        name.to_string(),
+                        exts.iter().map(|ext| ext.to_string()).collect::<Vec<_>>(),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            let sender = sender.clone();
+            block_on(async move {
+                let filter_keys = file_filter
+                    .iter()
+                    .map(|(name, _)| name.as_str())
+                    .collect::<Vec<_>>();
+                let filter_vals = file_filter
+                    .iter()
+                    .map(|(_, val)| val.iter().map(|r| r.as_str()).collect::<Vec<_>>())
+                    .collect::<Vec<_>>();
+                let filter_ref = filter_keys
+                    .into_iter()
+                    .zip(filter_vals.iter())
+                    .map(|(key, val)| (key, val.as_slice()))
+                    .collect::<Vec<_>>();
+
+                if let Some((path, data)) =
+                    file_dialog(cur_path.as_deref(), &filter_ref, file_filter.is_empty()).await
+                {
+                    sender.send((path, data)).await.unwrap();
+                }
+            });
         }
         if has_clear && ui.button("Clear").clicked() {
             *path = None;
-            ret = true;
+            changed = true;
         }
     });
     ui.indent("", |ui| {
@@ -1055,67 +1169,326 @@ pub fn file_field(
             .map_or_else(|| "None".to_string(), |r| r.display().to_string());
         ui.add(egui::TextEdit::singleline(&mut s.as_ref()));
     });
-    ret
+
+    FileFieldResult {
+        file_sent,
+        cleard: changed,
+    }
 }
 
-pub struct EguiUi<'a>(&'a mut egui::Ui);
+fn core_config_ui(ui: &mut egui::Ui, abbrev: &str, config: Value, sender: &Sender<ConfigValue>) {
+    let mut schema = EMULATOR_CORES
+        .iter()
+        .find(|core| core.core_info().abbrev == abbrev)
+        .unwrap()
+        .config_schema();
 
-impl<'a> Ui for EguiUi<'a> {
-    fn horizontal(&mut self, f: impl FnOnce(&mut Self)) {
-        self.0.horizontal(move |ui| {
-            // FIXME
-            f(&mut EguiUi(unsafe {
-                let p: *mut egui::Ui = ui;
-                &mut *p
-            }))
-        });
+    let (s, r) = unbounded_channel::<(Vec<FieldIndex>, Value)>();
+
+    let mut visitor = ConfigVisitor::new(ui, &schema, config, s);
+    visitor.visit_schema_object(&mut schema.schema);
+
+    let sender = sender.clone();
+    let abbrev = abbrev.to_string();
+
+    block_on(async move {
+        while let Ok((path, value)) = r.recv().await {
+            set_value_field(&mut visitor.new_val, &path, value);
+        }
+
+        if visitor.changed {
+            sender
+                .send(ConfigValue {
+                    abbrev,
+                    value: visitor.new_val,
+                })
+                .await
+                .unwrap();
+        }
+    })
+}
+
+fn get_value_field<'a>(v: &'a mut Value, path: &'_ [FieldIndex]) -> &'a mut Value {
+    let mut cur = v;
+    for f in path {
+        match f {
+            FieldIndex::Object(field) => cur = &mut cur[field.as_str()],
+            FieldIndex::Array(index) => cur = &mut cur[*index],
+        }
     }
+    cur
+}
 
-    fn enabled(&mut self, enabled: bool, f: impl FnOnce(&mut Self)) {
-        self.0.add_enabled_ui(enabled, |ui| {
-            // FIXME
-            f(&mut EguiUi(unsafe {
-                let p: *mut egui::Ui = ui;
-                &mut *p
-            }))
-        });
-    }
+fn set_value_field(v: &mut Value, path: &[FieldIndex], value: Value) {
+    *get_value_field(v, path) = value;
+}
 
-    fn label(&mut self, text: &str) {
-        self.0.label(text);
-    }
+#[derive()]
+struct ConfigVisitor<'a> {
+    ui: Option<&'a mut egui::Ui>,
+    path: Vec<FieldIndex>,
+    nullable: bool,
+    cur_val: Value,
+    new_val: Value,
+    sender: Sender<(Vec<FieldIndex>, Value)>,
+    changed: bool,
+    defs: BTreeMap<String, Schema>,
+}
 
-    fn checkbox(&mut self, value: &mut bool, text: &str) {
-        self.0.checkbox(value, text);
-    }
-
-    fn file(&mut self, label: &str, value: &mut Option<PathBuf>, filter: &[(&str, &[&str])]) {
-        file_field(self.0, label, value, filter, true);
-    }
-
-    fn color(&mut self, value: &mut meru_interface::Pixel) {
-        let mut col = [value.r, value.g, value.b];
-        if self.0.color_edit_button_srgb(&mut col).changed() {
-            *value = meru_interface::Pixel::new(col[0], col[1], col[2]);
+impl<'a> ConfigVisitor<'a> {
+    fn new(
+        ui: &'a mut egui::Ui,
+        schema: &RootSchema,
+        value: Value,
+        sender: Sender<(Vec<FieldIndex>, Value)>,
+    ) -> Self {
+        Self {
+            ui: Some(ui),
+            path: vec![],
+            nullable: false,
+            cur_val: value.clone(),
+            new_val: value,
+            sender,
+            changed: false,
+            defs: schema
+                .definitions
+                .iter()
+                .map(|(name, schema)| (format!("#/definitions/{}", name), schema.clone()))
+                .collect(),
         }
     }
 
-    fn radio<T: PartialEq + Clone>(&mut self, value: &mut T, choices: &[(&str, T)]) {
-        for (key, val) in choices {
-            self.0.radio_value(value, val.clone(), *key);
-        }
+    fn ui(&mut self) -> &mut egui::Ui {
+        self.ui.as_deref_mut().unwrap()
     }
+}
 
-    fn combo_box<T: PartialEq + Clone>(&mut self, value: &mut T, choices: &[(&str, T)]) {
-        let selected_text = choices.iter().find(|(_, v)| v == value).unwrap().0;
+impl ConfigVisitor<'_> {
+    fn resolve(&self, name: &str) -> Schema {
+        self.defs.get(name).unwrap().clone()
+    }
+}
 
-        egui::ComboBox::from_label("")
-            .width(250.0)
-            .selected_text(selected_text)
-            .show_ui(self.0, |ui| {
-                for (key, val) in choices {
-                    ui.selectable_value(value, val.clone(), *key);
+impl Visitor for ConfigVisitor<'_> {
+    fn visit_schema_object(&mut self, schema: &mut SchemaObject) {
+        if schema.is_ref() {
+            let name = schema.reference.as_ref().unwrap().clone();
+            let mut schema = self.resolve(&name);
+            visit_schema(self, &mut schema);
+            return;
+        }
+
+        if schema.has_type(InstanceType::Object) {
+            if let Some(sub) = &schema.subschemas().any_of {
+                let null_pos = if sub.len() == 2 {
+                    sub.iter().position(is_null)
+                } else {
+                    None
+                };
+
+                if null_pos.is_none() {
+                    let msg = format!("TODO: {:?}: Complex any_of", self.path);
+                    self.ui().label(msg);
+                    return;
+                }
+
+                let prev_nullable = self.nullable;
+                self.nullable = true;
+
+                let mut sub = sub[null_pos.unwrap() ^ 1].clone();
+                visit_schema(self, &mut sub);
+
+                self.nullable = prev_nullable;
+            }
+
+            let obj = schema.object();
+            for (field_name, schema) in obj.properties.iter_mut() {
+                self.path.push(FieldIndex::Object(field_name.clone()));
+                visit_schema(self, schema);
+                self.path.pop();
+            }
+            return;
+        }
+
+        let nullable = schema.has_type(InstanceType::Null) || self.nullable;
+
+        let label = match self.path.last().unwrap() {
+            FieldIndex::Object(field) => field.clone(),
+            FieldIndex::Array(index) => index.to_string(),
+        };
+
+        if schema.has_type(InstanceType::Array) {
+            let array = schema.array();
+
+            if array.min_items.is_some() && array.min_items != array.max_items {
+                self.ui()
+                    .label("TODO: Non-constant length arrays are not supported");
+                return;
+            }
+            let len = array.min_items.unwrap();
+
+            let items = if let Some(SingleOrVec::Single(items)) = &mut array.items {
+                items
+            } else {
+                self.ui()
+                    .label("TODO: Non-monomorphic arrays are not supported");
+                return;
+            };
+
+            let mut parent_ui = self.ui.take();
+
+            parent_ui.as_deref_mut().unwrap().horizontal(|ui| {
+                ui.label(&label);
+
+                // FIXME
+                let ui = unsafe { &mut *(ui as *mut egui::Ui) };
+                self.ui = Some(ui);
+                for i in 0..len {
+                    self.path.push(FieldIndex::Array(i as usize));
+                    visit_schema(self, items);
+                    self.path.pop();
                 }
             });
+
+            self.ui = parent_ui;
+            return;
+        }
+
+        if schema.has_type(InstanceType::Boolean) {
+            let mut value = get_value_field(&mut self.cur_val, &self.path)
+                .as_bool()
+                .unwrap();
+            self.changed |= self.ui().checkbox(&mut value, &label).changed();
+            set_value_field(&mut self.new_val, &self.path, value.into());
+            return;
+        }
+
+        if schema.has_type(InstanceType::Number) {
+            let msg = format!("TODO: {:?}: Number", self.path);
+            self.ui().label(msg);
+            return;
+        }
+
+        if schema.has_type(InstanceType::Integer) {
+            let msg = format!("TODO: {:?}: Integer", self.path);
+            self.ui().label(msg);
+            return;
+        }
+
+        if schema.has_type(InstanceType::String) {
+            let value = get_value_field(&mut self.cur_val, &self.path)
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+
+            if let Some(enum_values) = &schema.enum_values {
+                let alts = enum_values
+                    .iter()
+                    .map(|v| v.as_str().unwrap_or("").to_string())
+                    .collect::<Vec<_>>();
+                let mut selected = alts.iter().position(|v| v == &value).unwrap();
+
+                self.changed |= egui::ComboBox::from_label(label)
+                    .width(300.0)
+                    .selected_text(&value)
+                    .show_index(self.ui.as_mut().unwrap(), &mut selected, alts.len(), |i| {
+                        alts[i].clone()
+                    })
+                    .changed();
+
+                *get_value_field(&mut self.new_val, &self.path) =
+                    Value::from(alts[selected].clone());
+            } else if schema.format.as_deref() == Some("file") {
+                #[cfg(not(target_arch = "wasm32"))]
+                let mut path = {
+                    serde_json::from_value::<Option<File>>(
+                        get_value_field(&mut self.cur_val, &self.path).clone(),
+                    )
+                    .unwrap()
+                    .map(|f| f.path().to_owned())
+                };
+
+                #[cfg(target_arch = "wasm32")]
+                let mut path = {
+                    self.path.push(FieldIndex::Object("path".to_string()));
+                    let path = serde_json::from_value::<Option<PathBuf>>(
+                        get_value_field(&mut self.cur_val, &self.path).clone(),
+                    )
+                    .unwrap();
+                    self.path.pop();
+                    path
+                };
+
+                // TODO: way to specify filters
+
+                let (s, r) = unbounded_channel::<(PathBuf, Vec<u8>)>();
+
+                let res = file_field(
+                    self.ui(),
+                    &s,
+                    &label,
+                    &mut path,
+                    &[("All files", &["*"])],
+                    nullable,
+                );
+
+                if res.cleard {
+                    self.changed = true;
+                    set_value_field(&mut self.new_val, &self.path, Value::Null);
+                }
+
+                if res.file_sent {
+                    let json_path = self.path.clone();
+                    let sender = self.sender.clone();
+                    block_on(async move {
+                        #[allow(unused_variables)]
+                        let (path, data) = r.recv().await.unwrap();
+
+                        let file = File::new(path, data);
+                        sender
+                            .send((json_path, serde_json::to_value(file).unwrap()))
+                            .await
+                            .unwrap();
+                    });
+
+                    self.changed = true;
+                }
+            } else if schema.format.as_deref() == Some("color") {
+                let value = get_value_field(&mut self.cur_val, &self.path);
+
+                let color = serde_json::from_value::<meru_interface::Color>(value.clone()).unwrap();
+                let mut color = [color.r, color.g, color.b];
+                if self
+                    .ui
+                    .as_mut()
+                    .unwrap()
+                    .color_edit_button_srgb(&mut color)
+                    .changed()
+                {
+                    set_value_field(
+                        &mut self.new_val,
+                        &self.path,
+                        serde_json::to_value(meru_interface::Color::new(
+                            color[0], color[1], color[2],
+                        ))
+                        .unwrap(),
+                    );
+                    self.changed = true;
+                }
+            } else {
+                let msg = format!("TODO: {:?}: String ({:?})", self.path, schema.format);
+                self.ui().label(msg);
+            }
+
+            return;
+        }
+    }
+}
+
+fn is_null(s: &Schema) -> bool {
+    if let Some(SingleOrVec::Single(r)) = s.clone().into_object().instance_type {
+        matches!(r.as_ref(), InstanceType::Null)
+    } else {
+        false
     }
 }

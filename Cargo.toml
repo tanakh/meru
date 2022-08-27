@@ -16,7 +16,7 @@ categories = ["emulators"]
 keywords = ["emulators"]
 
 [dependencies]
-meru-interface = { path = "meru-interface", version = "0.2.0" }
+meru-interface = { path = "meru-interface", version = "0.3.0" }
 sabicom = { path = "sabicom", version = "0.1.0" }
 super-sabicom = { path = "super-sabicom", version = "0.1.0" }
 tgbr = { path = "tgbr", version = "0.3.0" }
@@ -44,6 +44,7 @@ image = { version = "0.24.3", default-features = false, features = ["ico"] }
 log = "0.4.17"
 rfd = "0.10.0"
 rodio = { version = "0.15.0", default-features = false }
+schemars = "0.8.10"
 serde = { version = "1.0.144", features = ["derive"] }
 serde_json = "1.0.85"
 thiserror = "1.0.32"
@@ -55,7 +56,6 @@ compress-tools = "0.13.0"
 futures = { version = "0.3.23" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-chrono = "0.4.22"
 indexed_db_futures = "0.2.3"
 js-sys = "0.3.59"
 wasm-bindgen = { version = "0.2.82", features = ["serde-serialize"] }

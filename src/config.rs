@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Result};
 use enum_iterator::Sequence;
 use log::info;
-use meru_interface::EmulatorCore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -12,7 +11,7 @@ use std::{
 };
 
 use crate::{
-    core::Emulator,
+    core::{Emulator, EmulatorCores},
     file::{create_dir_all, read, read_to_string, write},
     hotkey::HotKeys,
     input::KeyConfig,
@@ -159,19 +158,16 @@ impl Config {
         Ok(())
     }
 
-    pub fn core_config<T: EmulatorCore>(&self) -> T::Config {
-        if let Some(config) = self.core_configs.get(T::core_info().abbrev) {
-            serde_json::from_value(config.clone()).unwrap()
+    pub fn core_config(&self, abbrev: &str) -> Value {
+        if let Some(config) = self.core_configs.get(abbrev) {
+            config.clone()
         } else {
-            <T as EmulatorCore>::Config::default()
+            EmulatorCores::from_abbrev(abbrev).unwrap().default_config()
         }
     }
 
-    pub fn set_core_config<T: EmulatorCore>(&mut self, config: T::Config) {
-        self.core_configs.insert(
-            T::core_info().abbrev.into(),
-            serde_json::to_value(config).unwrap(),
-        );
+    pub fn set_core_config(&mut self, abbrev: &str, value: Value) {
+        self.core_configs.insert(abbrev.to_owned(), value);
     }
 
     pub fn key_config(&mut self, abbrev: &str) -> &meru_interface::KeyConfig {

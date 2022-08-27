@@ -10,19 +10,19 @@ use crate::{
     config::Config,
     core::Emulator,
     input::{InputState, KeyConfig},
-    utils::{Receiver, Sender},
+    utils::{block_on, unbounded_channel, Receiver, Sender},
 };
 
 pub struct HotKeyPlugin;
 
 impl Plugin for HotKeyPlugin {
     fn build(&self, app: &mut App) {
-        let (s, r) = async_channel::unbounded();
+        let (s, r) = unbounded_channel::<Either<HotKey, HotKeyCont>>();
         app.add_system(check_hotkey)
             .add_system(process_hotkey)
             .insert_resource(IsTurbo(false))
-            .insert_resource(Sender::<Either<HotKey, HotKeyCont>>::new(s))
-            .insert_resource(Receiver::<Either<HotKey, HotKeyCont>>::new(r));
+            .insert_resource(s)
+            .insert_resource(r);
     }
 }
 
@@ -141,7 +141,7 @@ fn process_hotkey(
                 if let Some(emulator) = &emulator {
                     let fut = emulator.save_state_slot(ui_state.state_save_slot, config.as_ref());
 
-                    async_std::task::block_on(async move { fut.await.unwrap() });
+                    block_on(async move { fut.await.unwrap() });
 
                     message_event.send(ShowMessage(format!(
                         "State saved: #{}",
@@ -155,7 +155,7 @@ fn process_hotkey(
 
                     let fut = emulator.load_state_slot(ui_state.state_save_slot, config.as_ref());
 
-                    async_std::task::block_on(async move {
+                    block_on(async move {
                         let result = fut.await;
                         send.send(Right(HotKeyCont::StateLoadDone(result)))
                             .await
