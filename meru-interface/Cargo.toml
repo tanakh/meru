@@ -1,6 +1,6 @@
 [package]
 name = "meru-interface"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["Hideyuki Tanaka <tanaka.hideyuki@gmail.com>"]
 license = "MIT"
@@ -12,4 +12,10 @@ categories = ["emulators"]
 keywords = ["emulators"]
 
 [dependencies]
-serde = { version = "1.0.143", features = ["derive"] }
+schemars = "0.8.10"
+serde = { version = "1.0.144", features = ["derive"] }
+thiserror = "1.0.32"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+base64 = "0.13.0"
+base64-serde = "0.6.1"
