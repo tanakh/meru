@@ -1,5 +1,3 @@
-use async_std::task;
-use cfg_if::cfg_if;
 use std::future::Future;
 use std::ops::Deref;
 
@@ -46,13 +44,13 @@ impl<T> Receiver<T> {
     }
 }
 
-pub fn block_on(f: impl Future<Output = ()> + 'static) {
-    cfg_if! {
-        if #[cfg(target_arch = "wasm32")] {
-            // On wasm, astnc_std::task::block_on does not block.
-            task::block_on(f);
-        } else {
-            task::block_on(f)
-        }
-    }
+#[cfg(target_arch = "wasm32")]
+pub fn spawn_local(f: impl Future<Output = ()> + 'static) {
+    // On wasm, astnc_std::task::block_on does not block.
+    async_std::task::block_on(f);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn spawn_local(f: impl Future<Output = ()> + Send + 'static) {
+    async_std::task::spawn(f);
 }

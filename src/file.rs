@@ -59,6 +59,7 @@ mod filesystem {
     use chrono::prelude::*;
     use indexed_db_futures::prelude::*;
     use js_sys::Uint8Array;
+    use log::info;
     use serde::{Deserialize, Serialize};
     use std::path::Path;
     use std::time::SystemTime;
@@ -103,7 +104,7 @@ mod filesystem {
         path: impl AsRef<Path>,
         data: impl AsRef<[u8]>,
     ) -> Result<(), FileSystemError> {
-        log::warn!("fs: write: {}", path.as_ref().display());
+        info!("fs: write: {}", path.as_ref().display());
 
         let (store_name, file_name) = parse_path(path.as_ref());
 
@@ -137,7 +138,7 @@ mod filesystem {
     }
 
     pub async fn read(path: impl AsRef<Path>) -> Result<Vec<u8>, FileSystemError> {
-        log::warn!("fs: read: {}", path.as_ref().display());
+        info!("fs: read: {}", path.as_ref().display());
 
         let (store_name, file_name) = parse_path(path.as_ref());
 
@@ -176,7 +177,7 @@ mod filesystem {
     pub async fn modified(
         path: impl AsRef<Path>,
     ) -> anyhow::Result<DateTime<Local>, FileSystemError> {
-        log::warn!("fs: modified: {}", path.as_ref().display());
+        info!("fs: modified: {}", path.as_ref().display());
 
         let (store_name, file_name) = parse_path(path.as_ref());
 
@@ -214,7 +215,7 @@ mod filesystem {
 pub use filesystem::*;
 
 pub async fn read_to_string(path: impl AsRef<Path>) -> Result<String> {
-    log::warn!("fs: read_to_string: {}", path.as_ref().display());
+    info!("fs: read_to_string: {}", path.as_ref().display());
 
     let bin = read(path).await?;
     let ret = String::from_utf8(bin)?;

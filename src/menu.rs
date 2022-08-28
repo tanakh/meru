@@ -8,7 +8,7 @@ use schemars::{
     schema::{InstanceType, RootSchema, Schema, SchemaObject, SingleOrVec},
     visit::{visit_schema, Visitor},
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -20,11 +20,11 @@ use crate::{
     core::{Emulator, StateFile, ARCHIVE_EXTENSIONS, EMULATOR_CORES},
     hotkey::{HotKey, HotKeys},
     input::ConvertInput,
-    utils::{block_on, unbounded_channel, Receiver, Sender},
+    utils::{spawn_local, unbounded_channel, Receiver, Sender},
 };
 
 pub const MENU_WIDTH: usize = 1280;
-pub const MENU_HEIGHT: usize = 720;
+pub const MENU_HEIGHT: usize = 768;
 
 pub struct MenuPlugin;
 
@@ -83,12 +83,15 @@ struct MenuError {
 
 fn setup_menu_system(
     mut commands: Commands,
-    mut windows: ResMut<Windows>,
+    #[cfg(not(target_arch = "wasm32"))] mut windows: ResMut<Windows>,
     fullscreen_state: Res<FullscreenState>,
 ) {
     if !fullscreen_state.0 {
-        let window = windows.get_primary_mut().unwrap();
-        window.set_resolution(MENU_WIDTH as f32, MENU_HEIGHT as f32);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let window = windows.get_primary_mut().unwrap();
+            window.set_resolution(MENU_WIDTH as f32, MENU_HEIGHT as f32);
+        }
     }
 
     commands.insert_resource(MenuState::default());
@@ -103,7 +106,7 @@ fn setup_menu_system(
 
 fn menu_exit(config: Res<Config>) {
     let config = config.clone();
-    block_on(async move { config.save().await.unwrap() });
+    spawn_local(async move { config.save().await.unwrap() });
 }
 
 fn menu_event_system(
@@ -136,7 +139,7 @@ fn menu_event_system(
                     Ok::<(), anyhow::Error>(())
                 };
 
-                block_on(async move {
+                spawn_local(async move {
                     fut.await.unwrap();
                 });
             }
@@ -146,7 +149,7 @@ fn menu_event_system(
 
                     persistent_state.add_recent(recent);
                     let fut = persistent_state.save();
-                    block_on(async move {
+                    spawn_local(async move {
                         fut.await.unwrap();
                     });
                     app_state.set(AppState::Running).unwrap();
@@ -678,7 +681,7 @@ fn menu_system(
         config.set_core_config(&config_value.abbrev, config_value.value);
 
         let config = config.clone();
-        block_on(async move { config.save().await.unwrap() });
+        spawn_local(async move { config.save().await.unwrap() });
     }
 
     let old_config = config.clone();
@@ -737,6 +740,7 @@ fn menu_system(
                             window_control_event.send(WindowControlEvent::ToggleFullscreen);
                         }
 
+                        #[cfg(not(target_arch = "wasm32"))]
                         ui.horizontal(|ui| {
                             ui.label("Window Scale:");
 
@@ -809,7 +813,7 @@ fn menu_system(
         }
 
         let config = config.clone();
-        block_on(async move {
+        spawn_local(async move {
             config.save().await.unwrap();
         });
     }
@@ -897,7 +901,7 @@ fn tab_file(
         if ui.button("Open File").clicked() {
             let menu_event = menu_event.clone();
 
-            block_on(async move {
+            spawn_local(async move {
                 let filter = file_dialog_filters();
                 let filter_ref = filter
                     .iter()
@@ -980,7 +984,7 @@ fn tab_state(
             if ui.button("Save").clicked() {
                 let menu_event = menu_event.clone();
                 let fut = emulator.save_state_slot(i, config);
-                block_on(async move {
+                spawn_local(async move {
                     fut.await.unwrap();
                     menu_event
                         .send(MenuEvent::StateSaved { slot: i })
@@ -992,7 +996,7 @@ fn tab_state(
                 if ui.button("Load").clicked() {
                     let menu_event = menu_event.clone();
                     let fut = emulator.load_state_slot(i, config);
-                    block_on(async move {
+                    spawn_local(async move {
                         let data = fut.await;
                         menu_event
                             .send(MenuEvent::StateLoaded { slot: i, data })
@@ -1136,7 +1140,7 @@ pub fn file_field(
                 .collect::<Vec<_>>();
 
             let sender = sender.clone();
-            block_on(async move {
+            spawn_local(async move {
                 let filter_keys = file_filter
                     .iter()
                     .map(|(name, _)| name.as_str())
@@ -1185,13 +1189,19 @@ fn core_config_ui(ui: &mut egui::Ui, abbrev: &str, config: Value, sender: &Sende
 
     let (s, r) = unbounded_channel::<(Vec<FieldIndex>, Value)>();
 
+    let is_empty = config == json!({});
     let mut visitor = ConfigVisitor::new(ui, &schema, config, s);
-    visitor.visit_schema_object(&mut schema.schema);
+
+    if is_empty {
+        visitor.ui().label("No config options");
+    } else {
+        visitor.visit_schema_object(&mut schema.schema);
+    }
 
     let sender = sender.clone();
     let abbrev = abbrev.to_string();
 
-    block_on(async move {
+    spawn_local(async move {
         while let Ok((path, value)) = r.recv().await {
             set_value_field(&mut visitor.new_val, &path, value);
         }
@@ -1440,15 +1450,15 @@ impl Visitor for ConfigVisitor<'_> {
                 if res.file_sent {
                     let json_path = self.path.clone();
                     let sender = self.sender.clone();
-                    block_on(async move {
+                    spawn_local(async move {
                         #[allow(unused_variables)]
-                        let (path, data) = r.recv().await.unwrap();
-
-                        let file = File::new(path, data);
-                        sender
-                            .send((json_path, serde_json::to_value(file).unwrap()))
-                            .await
-                            .unwrap();
+                        if let Ok((path, data)) = r.recv().await {
+                            let file = File::new(path, data);
+                            sender
+                                .send((json_path, serde_json::to_value(file).unwrap()))
+                                .await
+                                .unwrap();
+                        }
                     });
 
                     self.changed = true;

@@ -24,7 +24,7 @@ use crate::{
     hotkey,
     input::InputState,
     rewinding::AutoSavedState,
-    utils::block_on,
+    utils::spawn_local,
 };
 
 macro_rules! def_emulator_cores {
@@ -93,6 +93,13 @@ impl EmulatorCores {
             serde_json::to_value(T::Config::default()).unwrap()
         }
         dispatch_enum!(EmulatorCores, self, core, default_config(core))
+    }
+
+    pub fn check_config(&self, value: Value) -> bool {
+        fn check_config<T: EmulatorCore>(_: &PhantomData<T>, value: Value) -> bool {
+            serde_json::from_value::<T::Config>(value).is_ok()
+        }
+        dispatch_enum!(EmulatorCores, self, core, check_config(core, value))
     }
 
     pub fn config_schema(&self) -> RootSchema {
@@ -222,7 +229,7 @@ pub struct StateFile {
 impl Drop for Emulator {
     fn drop(&mut self) {
         let fut = self.save_backup();
-        block_on(async { fut.await.unwrap() });
+        spawn_local(async { fut.await.unwrap() });
     }
 }
 
@@ -449,7 +456,7 @@ fn setup_audio(world: &mut World) {
 pub struct GameScreen(pub Handle<Image>);
 
 fn setup_emulator_system(
-    mut windows: ResMut<Windows>,
+    #[cfg(not(target_arch = "wasm32"))] mut windows: ResMut<Windows>,
     mut commands: Commands,
     emulator: Res<Emulator>,
     mut images: ResMut<Assets<Image>>,
@@ -478,32 +485,41 @@ fn setup_emulator_system(
 
     commands.insert_resource(GameScreen(texture));
 
-    let window = windows.get_primary_mut().unwrap();
-    window.set_cursor_lock_mode(true);
-    window.set_cursor_visibility(false);
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let window = windows.get_primary_mut().unwrap();
+        window.set_cursor_lock_mode(true);
+        window.set_cursor_visibility(false);
+    }
 
     event.send(WindowControlEvent::Restore);
 }
 
 fn resume_emulator_system(
-    mut windows: ResMut<Windows>,
+    #[cfg(not(target_arch = "wasm32"))] mut windows: ResMut<Windows>,
     mut event: EventWriter<WindowControlEvent>,
 ) {
-    let window = windows.get_primary_mut().unwrap();
-    window.set_cursor_lock_mode(true);
-    window.set_cursor_visibility(false);
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let window = windows.get_primary_mut().unwrap();
+        window.set_cursor_lock_mode(true);
+        window.set_cursor_visibility(false);
+    }
 
     event.send(WindowControlEvent::Restore);
 }
 
 fn exit_emulator_system(
-    mut windows: ResMut<Windows>,
+    #[cfg(not(target_arch = "wasm32"))] mut windows: ResMut<Windows>,
     mut commands: Commands,
     screen_entity: Query<Entity, With<ScreenSprite>>,
 ) {
-    let window = windows.get_primary_mut().unwrap();
-    window.set_cursor_lock_mode(false);
-    window.set_cursor_visibility(true);
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let window = windows.get_primary_mut().unwrap();
+        window.set_cursor_lock_mode(false);
+        window.set_cursor_visibility(true);
+    }
 
     commands.entity(screen_entity.single()).despawn();
 }
@@ -650,7 +666,7 @@ fn emulator_system(
 
     if emulator.prev_backup_saved_frame + 60 * 60 <= emulator.frames {
         let fut = emulator.save_backup();
-        block_on(async move { fut.await.unwrap() });
+        spawn_local(async move { fut.await.unwrap() });
     }
 }
 

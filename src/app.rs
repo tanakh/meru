@@ -13,51 +13,57 @@ use log::error;
 use crate::{
     config::{self, load_config, load_persistent_state},
     core::{self, Emulator, GameScreen},
-    hotkey,
-    menu::{self, MENU_HEIGHT, MENU_WIDTH},
+    hotkey, menu,
     rewinding::{self},
 };
 
 pub async fn main() {
-    let mut app = App::new();
-    app.insert_resource(WindowDescriptor {
+    let window_desc = WindowDescriptor {
         title: "MERU".to_string(),
         resizable: false,
         present_mode: PresentMode::Fifo,
         width: menu::MENU_WIDTH as f32,
         height: menu::MENU_HEIGHT as f32,
+        #[cfg(target_arch = "wasm32")]
+        canvas: Some("#meru-canvas".to_string()),
         ..Default::default()
-    })
-    .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
-    .init_resource::<UiState>()
-    .init_resource::<FullscreenState>()
-    .insert_resource(Msaa { samples: 4 })
-    .insert_resource(bevy::log::LogSettings {
-        level: bevy::utils::tracing::Level::WARN,
-        filter: "".to_string(),
-    })
-    .insert_resource(ImageSettings {
-        default_sampler: ImageSampler::nearest_descriptor(),
-    })
-    .add_plugins(DefaultPlugins)
-    .add_plugin(FrameTimeDiagnosticsPlugin)
-    .add_plugin(TiledCameraPlugin)
-    .add_plugin(EasingsPlugin)
-    .add_plugin(EguiPlugin)
-    .add_plugin(hotkey::HotKeyPlugin)
-    .add_plugin(menu::MenuPlugin)
-    .add_plugin(core::EmulatorPlugin)
-    .add_plugin(rewinding::RewindingPlugin)
-    .add_plugin(FpsPlugin)
-    .add_plugin(MessagePlugin)
-    .add_event::<WindowControlEvent>()
-    .add_system(window_control_event)
-    .insert_resource(LastClicked(0.0))
-    .add_system(process_double_click)
-    .add_startup_system(setup)
-    .add_startup_stage("single-startup", SystemStage::single_threaded())
-    .add_startup_system_to_stage("single-startup", set_window_icon)
-    .add_state(AppState::Menu);
+    };
+
+    let mut app = App::new();
+    app.insert_resource(window_desc)
+        .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
+        .init_resource::<UiState>()
+        .init_resource::<FullscreenState>()
+        .insert_resource(Msaa { samples: 4 })
+        .insert_resource(bevy::log::LogSettings {
+            level: bevy::utils::tracing::Level::WARN,
+            filter: "".to_string(),
+        })
+        .insert_resource(ImageSettings {
+            default_sampler: ImageSampler::nearest_descriptor(),
+        })
+        .add_plugins(DefaultPlugins)
+        .add_plugin(FrameTimeDiagnosticsPlugin)
+        .add_plugin(TiledCameraPlugin)
+        .add_plugin(EasingsPlugin)
+        .add_plugin(EguiPlugin)
+        .add_plugin(hotkey::HotKeyPlugin)
+        .add_plugin(menu::MenuPlugin)
+        .add_plugin(core::EmulatorPlugin)
+        .add_plugin(rewinding::RewindingPlugin)
+        .add_plugin(FpsPlugin)
+        .add_plugin(MessagePlugin)
+        .add_event::<WindowControlEvent>()
+        .add_system(window_control_event)
+        .insert_resource(LastClicked(0.0))
+        .add_system(process_double_click)
+        .add_startup_system(setup)
+        .add_startup_stage("single-startup", SystemStage::single_threaded())
+        .add_startup_system_to_stage("single-startup", set_window_icon)
+        .add_state(AppState::Menu);
+
+    #[cfg(target_arch = "wasm32")]
+    app.add_system(resize_canvas);
 
     let fut = async move {
         let config = match load_config().await {
@@ -222,6 +228,30 @@ fn window_control_event(
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+fn resize_canvas(mut windows: ResMut<Windows>) {
+    use wasm_bindgen::JsCast;
+
+    let window = windows.get_primary_mut().unwrap();
+
+    let canvas = web_sys::window()
+        .unwrap()
+        .document()
+        .unwrap()
+        .query_selector(window.canvas().unwrap())
+        .unwrap()
+        .unwrap()
+        .dyn_into::<web_sys::HtmlCanvasElement>()
+        .unwrap();
+
+    let width = canvas.offset_width() as f32;
+    let height = canvas.offset_height() as f32;
+
+    if (window.width(), window.height()) != (width, height) {
+        window.set_resolution(width, height);
+    }
+}
+
 struct LastClicked(f64);
 
 fn process_double_click(
@@ -245,6 +275,7 @@ fn process_double_click(
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn restore_window(
     emulator: &Emulator,
     app_state: &AppState,
@@ -253,7 +284,7 @@ fn restore_window(
     scaling: usize,
 ) {
     let (width, height) = if matches!(app_state, AppState::Menu) {
-        (MENU_WIDTH as f32, MENU_HEIGHT as f32)
+        (menu::MENU_WIDTH as f32, menu::MENU_HEIGHT as f32)
     } else {
         let scale = scaling as f32;
         (
@@ -265,6 +296,17 @@ fn restore_window(
     if !fullscreen {
         window.set_resolution(width, height);
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[allow(unused_variables)]
+fn restore_window(
+    emulator: &Emulator,
+    app_state: &AppState,
+    window: &mut Window,
+    fullscreen: bool,
+    scaling: usize,
+) {
 }
 
 struct FpsPlugin;

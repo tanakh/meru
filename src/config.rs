@@ -1,6 +1,6 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use enum_iterator::Sequence;
-use log::info;
+use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -11,7 +11,7 @@ use std::{
 };
 
 use crate::{
-    core::{Emulator, EmulatorCores},
+    core::{Emulator, EmulatorCores, EMULATOR_CORES},
     file::{create_dir_all, read, read_to_string, write},
     hotkey::HotKeys,
     input::KeyConfig,
@@ -111,7 +111,7 @@ impl Default for Config {
                     .to_owned(),
             )
         } else {
-            log::warn!("Cannot get project directory. Defaults to `save` and `state`");
+            warn!("Cannot get project directory. Defaults to `save` and `state`");
             (PathBuf::from("save"), PathBuf::from("state"))
         };
 
@@ -138,7 +138,7 @@ fn config_dir() -> Result<PathBuf> {
     let config_dir = if let Ok(project_dirs) = project_dirs() {
         project_dirs.config_dir().to_owned()
     } else {
-        log::warn!("Cannot find project directory. Defaults to `config`");
+        warn!("Cannot find project directory. Defaults to `config`");
         Path::new("config").to_owned()
     };
     create_dir_all(&config_dir)?;
@@ -183,7 +183,19 @@ impl Config {
 
 pub async fn load_config() -> Result<Config> {
     let ret = if let Ok(s) = read_to_string(config_path()?).await {
-        serde_json::from_str(&s).map_err(|e| anyhow!("{}", e))?
+        let mut config: Config = serde_json::from_str(&s)?;
+
+        for core in EMULATOR_CORES {
+            let core_config = config.core_config(core.core_info().abbrev);
+            if !core.check_config(core_config) {
+                warn!(
+                    "Config for {} is invalid. Initialize to default",
+                    core.core_info().abbrev
+                );
+                config.set_core_config(core.core_info().abbrev, core.default_config());
+            }
+        }
+        config
     } else {
         Config::default()
     };
