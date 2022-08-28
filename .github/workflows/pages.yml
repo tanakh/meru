@@ -1,27 +1,21 @@
-# Simple workflow for deploying static content to GitHub Pages
-name: Deploy static content to Pages
+name: Deploy web app to Pages
 
 on:
-  # Runs on pushes targeting the default branch
   push:
     branches: ["master"]
 
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Allow one concurrent deployment
 concurrency:
   group: "pages"
   cancel-in-progress: true
 
 jobs:
-  # Single deploy job since we're just deploying
   deploy:
     environment:
       name: github-pages
@@ -30,13 +24,38 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Build | Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          target: wasm32-unknown-unknown
+          override: true
+
+      - name: Build | Install wasm-bindgen-cli
+        uses: actions-rs/toolchain@v1
+        command: install
+        args: wasm-bindgen-cli
+
+      - name: Build | Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --target=wasm32-unknown-unknown
+
+      - name: Build | Generate page
+        run: wasm-bindgen --out-dir ./web/ --target web ./target/wasm32-unknown-unknown/release/meru.wasm
+
       - name: Setup Pages
         uses: actions/configure-pages@v2
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v1
         with:
-          # Upload entire repository
-          path: '.'
+          path: 'web'
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v1
