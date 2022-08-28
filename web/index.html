@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="description" content="MERU Multi-console Emulator">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <link rel="icon" type="image/x-icon" href="./favicon.ico">
+
+    <link rel="stylesheet" href="./bootstrap.min.css" />
+    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.4/css/all.css"
+        integrity="sha384-DyZ88mC6Up2uqS4h/KRgHuoeGwBcD4Ng9SiP4dIRy0EXTlnuz47vAwmeGwVChigm" crossorigin="anonymous" />
+
+    <style>
+        .bevy-instance__canvas {
+            width: 100% !important;
+            height: auto !important;
+            border-radius: 10px;
+            background: #2b2c2f
+        }
+    </style>
+
+    <title>MERU</title>
+</head>
+<html lang="en">
+
+<body>
+    <script type="module">
+        import init from './meru.js';
+        await init();
+    </script>
+
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                &nbsp;
+                <img src="./favicon.ico" width="30" height="30" class="d-inline-block align-top" alt="">
+                &nbsp; MERU
+            </a>
+            <div class="collapse navbar-collapse" id="navbarSupportedContent">
+
+                <ul class="navbar-nav ms-auto d-flex flex-row">
+                    <li class="nav-item me-3 me-lg-0">
+                        <a href="https://twitter.com/share?ref_src=twsrc%5Etfw" class="twitter-share-button"
+                            data-show-count="false">Tweet</a>
+                        <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+                        &nbsp;
+                    </li>
+                </ul>
+
+                <ul class="navbar-nav d-flex flex-row">
+                    <li class="nav-item me-3 me-lg-0">
+                        <a class="nav-link" href="https://twitter.com/tanakh/" title="Twitter">
+                            <i class="fab fa-twitter fa-lg"></i>
+                        </a>
+                    </li>
+
+                    <li class="nav-item me-3 me-lg-0">
+                        <a class="nav-link" href="https://github.com/tanakh/meru/" title="GitHub Repository">
+                            <i class="fab fa-github fa-lg"></i>
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <br>
+    <main class="container-fluid">
+        <canvas id="meru-canvas" class="bevy-instance__canvas">
+        </canvas>
+    </main>
+    <br>
+
+    <footer class="footer mt-auto py-3 bg-dark">
+        <div class="container">
+            <span class="text-muted">
+                <p>
+                    MERU: Multi-console Emulator written in Rust
+                    &copy; 2022 tanakh
+                    <br>
+                    <a href="https://github.com/tanakh/meru/">GitHub Repository</a>
+                </p>
+            </span>
+        </div>
+    </footer>
+</body>
+
+</html>

@@ -1,1 +1,4 @@
 /target
+web/*.d.ts
+web/*.js
+web/*.wasm
