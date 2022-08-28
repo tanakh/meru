@@ -1233,10 +1233,10 @@ fn set_value_field(v: &mut Value, path: &[FieldIndex], value: Value) {
     *get_value_field(v, path) = value;
 }
 
-#[derive()]
 struct ConfigVisitor<'a> {
     ui: Option<&'a mut egui::Ui>,
     path: Vec<FieldIndex>,
+    label: Option<String>,
     nullable: bool,
     cur_val: Value,
     new_val: Value,
@@ -1255,6 +1255,7 @@ impl<'a> ConfigVisitor<'a> {
         Self {
             ui: Some(ui),
             path: vec![],
+            label: None,
             nullable: false,
             cur_val: value.clone(),
             new_val: value,
@@ -1288,7 +1289,46 @@ impl Visitor for ConfigVisitor<'_> {
             return;
         }
 
+        let label = schema
+            .metadata()
+            .description
+            .as_ref()
+            .or_else(|| self.label.as_ref())
+            .map_or_else(
+                || {
+                    self.path
+                        .last()
+                        .map(|index| match index {
+                            FieldIndex::Object(field) => field.clone(),
+                            FieldIndex::Array(index) => index.to_string(),
+                        })
+                        .unwrap_or_else(|| "".to_string())
+                },
+                |label| label.clone(),
+            );
+
         if schema.has_type(InstanceType::Object) {
+            // handle annotated
+            if let Some(sub) = &schema.subschemas().all_of {
+                if sub.len() != 1 {
+                    let msg = format!("TODO: {:?}: Complex all_of", self.path);
+                    self.ui().label(msg);
+                    return;
+                }
+
+                let mut sub = sub[0].clone();
+
+                let prev_label = self.label.take();
+                self.label = schema.metadata().description.clone();
+
+                visit_schema(self, &mut sub);
+
+                self.label = prev_label;
+
+                return;
+            }
+
+            // handle nullable
             if let Some(sub) = &schema.subschemas().any_of {
                 let null_pos = if sub.len() == 2 {
                     sub.iter().position(is_null)
@@ -1302,30 +1342,51 @@ impl Visitor for ConfigVisitor<'_> {
                     return;
                 }
 
+                let mut sub = sub[null_pos.unwrap() ^ 1].clone();
+
                 let prev_nullable = self.nullable;
                 self.nullable = true;
 
-                let mut sub = sub[null_pos.unwrap() ^ 1].clone();
+                let prev_label = self.label.take();
+                self.label = schema.metadata().description.clone();
+
                 visit_schema(self, &mut sub);
 
+                self.label = prev_label;
                 self.nullable = prev_nullable;
+
+                return;
             }
 
             let obj = schema.object();
-            for (field_name, schema) in obj.properties.iter_mut() {
-                self.path.push(FieldIndex::Object(field_name.clone()));
-                visit_schema(self, schema);
-                self.path.pop();
+
+            if label == "" {
+                for (field_name, schema) in obj.properties.iter_mut() {
+                    self.path.push(FieldIndex::Object(field_name.clone()));
+                    visit_schema(self, schema);
+                    self.path.pop();
+                }
+            } else {
+                self.ui().label(&label);
+
+                let mut parent_ui = self.ui.take();
+                parent_ui.as_deref_mut().unwrap().indent("", |ui| {
+                    // FIXME
+                    let ui = unsafe { &mut *(ui as *mut egui::Ui) };
+                    self.ui = Some(ui);
+
+                    for (field_name, schema) in obj.properties.iter_mut() {
+                        self.path.push(FieldIndex::Object(field_name.clone()));
+                        visit_schema(self, schema);
+                        self.path.pop();
+                    }
+                });
+                self.ui = parent_ui;
             }
             return;
         }
 
         let nullable = schema.has_type(InstanceType::Null) || self.nullable;
-
-        let label = match self.path.last().unwrap() {
-            FieldIndex::Object(field) => field.clone(),
-            FieldIndex::Array(index) => index.to_string(),
-        };
 
         if schema.has_type(InstanceType::Array) {
             let array = schema.array();
