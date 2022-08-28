@@ -32,6 +32,10 @@ mod filesystem {
         Ok(())
     }
 
+    pub async fn exists(path: &Path) -> Result<bool, FileSystemError> {
+        Ok(path.is_file())
+    }
+
     pub async fn write(
         path: impl AsRef<Path>,
         data: impl AsRef<[u8]>,
@@ -95,6 +99,27 @@ mod filesystem {
         Ok(())
     }
 
+    pub async fn exists(path: &Path) -> Result<bool, FileSystemError> {
+        let (store_name, file_name) = parse_path(path.as_ref());
+
+        let db = open_db().await.map_err(|_| FileSystemError::DomException)?;
+
+        let tx: IdbTransaction = db
+            .transaction_on_one_with_mode(&store_name, IdbTransactionMode::Readonly)
+            .map_err(|_| FileSystemError::DomException)?;
+
+        let store: IdbObjectStore = tx
+            .object_store(&store_name)
+            .map_err(|_| FileSystemError::DomException)?;
+
+        Ok(store
+            .count_with_key_owned(&file_name)
+            .map_err(|_| FileSystemError::DomException)?
+            .await
+            .map_err(|_| FileSystemError::DomException)?
+            > 0)
+    }
+
     #[derive(Serialize, Deserialize)]
     struct Metadata {
         modified: SystemTime,
@@ -145,7 +170,7 @@ mod filesystem {
         let db = open_db().await.map_err(|_| FileSystemError::DomException)?;
 
         let tx: IdbTransaction = db
-            .transaction_on_one_with_mode(&store_name, IdbTransactionMode::Readwrite)
+            .transaction_on_one_with_mode(&store_name, IdbTransactionMode::Readonly)
             .map_err(|_| FileSystemError::DomException)?;
 
         let store: IdbObjectStore = tx
@@ -253,10 +278,11 @@ pub async fn load_backup(
 ) -> Result<Option<Vec<u8>>> {
     let path = get_backup_file_path(core_abbrev, name, save_dir)?;
 
-    Ok(if path.is_file() {
+    Ok(if exists(&path).await? {
         info!("Loading backup RAM: `{}`", path.display());
         Some(read(path).await?)
     } else {
+        info!("Backup RAM not found: `{}`", path.display());
         None
     })
 }
@@ -264,7 +290,7 @@ pub async fn load_backup(
 pub async fn save_backup(core_abbrev: &str, name: &str, ram: &[u8], save_dir: &Path) -> Result<()> {
     let path = get_backup_file_path(core_abbrev, name, save_dir)?;
 
-    if !path.exists() {
+    if !exists(&path).await? {
         info!("Creating backup RAM file: `{}`", path.display());
     } else {
         info!("Overwriting backup RAM file: `{}`", path.display());

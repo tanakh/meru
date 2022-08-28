@@ -509,6 +509,7 @@ fn resume_emulator_system(
 fn exit_emulator_system(
     #[cfg(not(target_arch = "wasm32"))] mut windows: ResMut<Windows>,
     mut commands: Commands,
+    mut emulator: ResMut<Emulator>,
     screen_entity: Query<Entity, With<ScreenSprite>>,
 ) {
     #[cfg(not(target_arch = "wasm32"))]
@@ -517,6 +518,11 @@ fn exit_emulator_system(
         window.set_cursor_lock_mode(false);
         window.set_cursor_visibility(true);
     }
+
+    let fut = emulator.save_backup();
+    spawn_local(async move {
+        fut.await.unwrap();
+    });
 
     commands.entity(screen_entity.single()).despawn();
 }
