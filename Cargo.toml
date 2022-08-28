@@ -65,6 +65,9 @@ zip = { version = "0.6.2", default-features = false, features = ["deflate"] }
 [build-dependencies]
 winres = "0.1"
 
+[profile.release]
+lto = true
+
 [package.metadata.vcpkg]
 git = "https://github.com/microsoft/vcpkg"
 branch = "master"
