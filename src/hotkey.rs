@@ -119,6 +119,7 @@ fn check_hotkey(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn process_hotkey(
     mut config: ResMut<Config>,
     recv: Res<Receiver<Either<HotKey, HotKeyCont>>>,

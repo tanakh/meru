@@ -124,7 +124,7 @@ async fn make_core_from_data<T: EmulatorCore + Into<EmulatorEnum>>(
 
     let fut = async {
         let backup = load_backup(core_info.abbrev, name, &config.save_dir).await?;
-        let config = serde_json::from_value(config.core_config(T::core_info().abbrev).clone())?;
+        let config = serde_json::from_value(config.core_config(T::core_info().abbrev))?;
         let core = T::try_from_file(data, backup.as_deref(), &config)?;
         Ok(core.into())
     };
@@ -253,7 +253,7 @@ async fn try_make_emulator(path: &Path, data: &[u8], config: &Config) -> Result<
         .ok_or_else(|| anyhow!("Invalid file name"))?
         .to_string_lossy();
 
-    let core = EmulatorEnum::try_new(&name, &ext, &data, config).await?;
+    let core = EmulatorEnum::try_new(&name, &ext, data, config).await?;
 
     let mut state_files = vec![];
 
@@ -370,10 +370,7 @@ impl Emulator {
         let game_name = self.game_name.clone();
         let save_dir = config.save_dir.clone();
 
-        async move {
-            let ret = save_state(&abbrev, &game_name, slot, &data, &save_dir).await;
-            ret
-        }
+        async move { save_state(&abbrev, &game_name, slot, &data, &save_dir).await }
     }
 
     pub fn load_state_slot(

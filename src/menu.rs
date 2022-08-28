@@ -109,6 +109,7 @@ fn menu_exit(config: Res<Config>) {
     spawn_local(async move { config.save().await.unwrap() });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn menu_event_system(
     mut commands: Commands,
     mut emulator: Option<ResMut<Emulator>>,
@@ -764,7 +765,7 @@ fn menu_system(
                 ui.heading(format!("{} Settings", core_info.system_name));
                 ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
                     ui.group(|ui| {
-                        let core_config = config.core_config(core_info.abbrev).clone();
+                        let core_config = config.core_config(core_info.abbrev);
                         core_config_ui(ui, core_info.abbrev, core_config, &config_channel.sender);
                     });
                 });
@@ -1141,10 +1142,7 @@ pub fn file_field(
 
             let sender = sender.clone();
             spawn_local(async move {
-                let filter_keys = file_filter
-                    .iter()
-                    .map(|(name, _)| name.as_str())
-                    .collect::<Vec<_>>();
+                let filter_keys = file_filter.iter().map(|(name, _)| name.as_str());
                 let filter_vals = file_filter
                     .iter()
                     .map(|(_, val)| val.iter().map(|r| r.as_str()).collect::<Vec<_>>())
@@ -1293,7 +1291,7 @@ impl Visitor for ConfigVisitor<'_> {
             .metadata()
             .description
             .as_ref()
-            .or_else(|| self.label.as_ref())
+            .or(self.label.as_ref())
             .map_or_else(
                 || {
                     self.path
@@ -1360,7 +1358,7 @@ impl Visitor for ConfigVisitor<'_> {
 
             let obj = schema.object();
 
-            if label == "" {
+            if label.is_empty() {
                 for (field_name, schema) in obj.properties.iter_mut() {
                     self.path.push(FieldIndex::Object(field_name.clone()));
                     visit_schema(self, schema);
@@ -1550,8 +1548,6 @@ impl Visitor for ConfigVisitor<'_> {
                 let msg = format!("TODO: {:?}: String ({:?})", self.path, schema.format);
                 self.ui().label(msg);
             }
-
-            return;
         }
     }
 }
