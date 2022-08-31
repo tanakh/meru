@@ -2679,7 +2679,7 @@ dependencies = [
 
 [[package]]
 name = "meru"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -3530,7 +3530,7 @@ checksum = "4501abdff3ae82a1c1b477a17252eb69cee9e66eb915c1abaa4f44d873df9f09"
 
 [[package]]
 name = "sabicom"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ambassador",
  "anyhow",
@@ -3777,7 +3777,7 @@ checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
 
 [[package]]
 name = "super-sabicom"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bincode",
  "educe",
@@ -3874,7 +3874,7 @@ dependencies = [
 
 [[package]]
 name = "tgba"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ambassador",
  "bincode",
@@ -3890,7 +3890,7 @@ dependencies = [
 
 [[package]]
 name = "tgbr"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "ambassador",
  "anyhow",

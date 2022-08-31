@@ -4,7 +4,7 @@ exclude = ["super-sabicom"]
 
 [package]
 name = "meru"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["Hideyuki Tanaka <tanaka.hideyuki@gmail.com>"]
 license = "MIT"
@@ -17,10 +17,10 @@ keywords = ["emulators"]
 
 [dependencies]
 meru-interface = { path = "meru-interface", version = "0.3.0" }
-sabicom = { path = "sabicom", version = "0.1.0" }
-super-sabicom = { path = "super-sabicom", version = "0.1.0" }
-tgbr = { path = "tgbr", version = "0.3.0" }
-tgba = { path = "tgba", version = "0.2.0" }
+sabicom = { path = "sabicom", version = "0.2.0" }
+super-sabicom = { path = "super-sabicom", version = "0.2.0" }
+tgbr = { path = "tgbr", version = "0.4.0" }
+tgba = { path = "tgba", version = "0.3.0" }
 
 anyhow = "1.0.63"
 async-channel = "1.7.1"
