@@ -2,7 +2,8 @@ name: Deploy web app to Pages
 
 on:
   push:
-    branches: ["master"]
+    tags:
+      - 'v*'
 
   workflow_dispatch:
 
@@ -57,6 +58,7 @@ jobs:
         uses: actions/upload-pages-artifact@v1
         with:
           path: 'web'
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v1

@@ -5,6 +5,8 @@ on:
     tags:
       - 'v*'
 
+  workflow_dispatch:
+
 jobs:
   github_build:
     name: Build release binaries
