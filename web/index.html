@@ -6,10 +6,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
     <link rel="icon" type="image/x-icon" href="./favicon.ico">
-
     <link rel="stylesheet" href="./bootstrap.min.css" />
-    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.4/css/all.css"
-        integrity="sha384-DyZ88mC6Up2uqS4h/KRgHuoeGwBcD4Ng9SiP4dIRy0EXTlnuz47vAwmeGwVChigm" crossorigin="anonymous" />
+    <script src="https://kit.fontawesome.com/c84d3b6eca.js" crossorigin="anonymous"></script>
+
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-ZGZJQ1RVF9"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag() { dataLayer.push(arguments); }
+        gtag('js', new Date());
+
+        gtag('config', 'G-ZGZJQ1RVF9');
+    </script>
 
     <style>
         .bevy-instance__canvas {
@@ -41,23 +48,29 @@
 
                 <ul class="navbar-nav ms-auto d-flex flex-row">
                     <li class="nav-item me-3 me-lg-0">
+                        <a href="https://github.com/tanakh/meru/issues/new" target="_blank" rel="noreferrer noopener">
+                            <i class="fa-solid fa-bug"></i> Report Bugs
+                        </a>
+                        &emsp;
+                    </li>
+                    <li class="nav-item me-3 me-lg-0">
                         <a href="https://twitter.com/share?ref_src=twsrc%5Etfw" class="twitter-share-button"
                             data-show-count="false">Tweet</a>
                         <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
-                        &nbsp;
+                        &ensp;
                     </li>
                 </ul>
 
                 <ul class="navbar-nav d-flex flex-row">
                     <li class="nav-item me-3 me-lg-0">
                         <a class="nav-link" href="https://twitter.com/tanakh/" title="Twitter">
-                            <i class="fab fa-twitter fa-lg"></i>
+                            <i class="fa-brands fa-twitter fa-lg"></i>
                         </a>
                     </li>
 
                     <li class="nav-item me-3 me-lg-0">
                         <a class="nav-link" href="https://github.com/tanakh/meru/" title="GitHub Repository">
-                            <i class="fab fa-github fa-lg"></i>
+                            <i class="fa-brands fa-github fa-lg"></i>
                         </a>
                     </li>
                 </ul>
