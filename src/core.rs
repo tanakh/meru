@@ -447,7 +447,35 @@ fn setup_audio(world: &mut World) {
 
     world.insert_non_send_resource(stream);
     world.insert_resource(stream_handle);
-    world.insert_resource(sink);
+    world.insert_resource(AudioSink::new(sink));
+}
+
+struct AudioSink {
+    sink: rodio::Sink,
+}
+
+impl AudioSink {
+    fn new(sink: rodio::Sink) -> Self {
+        Self { sink }
+    }
+
+    fn append(&self, buffer: &AudioBuffer) {
+        let mut samples = Vec::with_capacity(buffer.samples.len() * buffer.channels as usize);
+        for sample in &buffer.samples {
+            samples.push(sample.left);
+            samples.push(sample.right);
+        }
+        self.sink.append(AudioSource {
+            sample_rate: buffer.sample_rate,
+            channels: buffer.channels,
+            data: samples,
+            cursor: 0,
+        });
+    }
+
+    fn len(&self) -> usize {
+        self.sink.len()
+    }
 }
 
 pub struct GameScreen(pub Handle<Image>);
@@ -574,32 +602,25 @@ fn emulator_system(
     mut emulator: ResMut<Emulator>,
     mut images: ResMut<Assets<Image>>,
     input: Res<InputData>,
-    audio_sink: Res<rodio::Sink>,
+    audio_sink: Res<AudioSink>,
     is_turbo: Res<hotkey::IsTurbo>,
 ) {
+    let min_audio_frames = 4;
+
     emulator.core.set_input(&*input);
 
-    let push_audio_queue = |audio_buffer: &AudioBuffer| {
-        let source = AudioSource {
-            sample_rate: audio_buffer.sample_rate,
-            channels: audio_buffer.channels,
-            data: audio_buffer
-                .samples
-                .iter()
-                .flat_map(|sample| [sample.left, sample.right])
-                .collect(),
-            cursor: 0,
-        };
-        audio_sink.append(source);
-    };
+    if emulator.prev_backup_saved_frame + 60 * 60 <= emulator.frames {
+        let fut = emulator.save_backup();
+        spawn_local(async move { fut.await.unwrap() });
+    }
 
     if !is_turbo.0 {
-        if audio_sink.len() as u32 > 4 {
+        if audio_sink.len() >= min_audio_frames + 4 {
             // execution too fast. wait 1 frame.
             return;
         }
 
-        let mut exec_frame = |render_graphics| {
+        let mut exec_frame = |audio_sink: &AudioSink, render_graphics| {
             emulator.core.exec_frame(render_graphics);
             emulator.frames += 1;
 
@@ -625,14 +646,15 @@ fn emulator_system(
                     emulator.auto_saved_states.pop_front();
                 }
             }
-            push_audio_queue(emulator.core.audio_buffer());
+            audio_sink.append(emulator.core.audio_buffer());
         };
 
-        if audio_sink.len() < 2 {
-            // execution too slow. run 2 frame for supply enough audio samples.
-            exec_frame(false);
+        exec_frame(audio_sink.as_ref(), true);
+
+        // execution too slow. run frames for supply enough audio samples.
+        while audio_sink.len() < min_audio_frames {
+            exec_frame(audio_sink.as_ref(), false);
         }
-        exec_frame(true);
 
         // Update texture
         let fb = emulator.core.frame_buffer();
@@ -641,8 +663,8 @@ fn emulator_system(
     } else {
         for i in 0..config.frame_skip_on_turbo {
             emulator.core.exec_frame(i == 0);
-            if audio_sink.len() < 2 {
-                push_audio_queue(emulator.core.audio_buffer());
+            if audio_sink.len() < min_audio_frames {
+                audio_sink.append(emulator.core.audio_buffer());
             }
         }
         // Update texture
@@ -665,11 +687,6 @@ fn emulator_system(
                 TiledCameraBundle::pixel_cam([width, height]).with_pixels_per_tile([1, 1]),
             );
         }
-    }
-
-    if emulator.prev_backup_saved_frame + 60 * 60 <= emulator.frames {
-        let fut = emulator.save_backup();
-        spawn_local(async move { fut.await.unwrap() });
     }
 }
 

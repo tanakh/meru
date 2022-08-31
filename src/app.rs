@@ -21,11 +21,27 @@ pub async fn main() {
     let window_desc = WindowDescriptor {
         title: "MERU".to_string(),
         resizable: false,
-        present_mode: PresentMode::Fifo,
+        present_mode: PresentMode::AutoVsync,
         width: menu::MENU_WIDTH as f32,
         height: menu::MENU_HEIGHT as f32,
         #[cfg(target_arch = "wasm32")]
-        canvas: Some("#meru-canvas".to_string()),
+        canvas: {
+            let url = url::Url::parse(
+                &web_sys::window()
+                    .unwrap()
+                    .document()
+                    .unwrap()
+                    .url()
+                    .unwrap(),
+            )
+            .unwrap();
+            if url.port() == Some(1334) {
+                // on wasm-server-runner
+                None
+            } else {
+                Some("#meru-canvas".to_string())
+            }
+        },
         ..Default::default()
     };
 
@@ -234,11 +250,17 @@ fn resize_canvas(mut windows: ResMut<Windows>) {
 
     let window = windows.get_primary_mut().unwrap();
 
+    let canvas = if let Some(canvas) = window.canvas() {
+        canvas
+    } else {
+        return;
+    };
+
     let canvas = web_sys::window()
         .unwrap()
         .document()
         .unwrap()
-        .query_selector(window.canvas().unwrap())
+        .query_selector(canvas)
         .unwrap()
         .unwrap()
         .dyn_into::<web_sys::HtmlCanvasElement>()
@@ -369,7 +391,7 @@ fn exit_fps_system(
 #[allow(clippy::type_complexity)]
 fn fps_system(
     config: Res<config::Config>,
-    diagnostics: ResMut<Diagnostics>,
+    diagnostics: Res<Diagnostics>,
     is_turbo: Res<hotkey::IsTurbo>,
     emulator: Option<Res<Emulator>>,
     mut ps: ParamSet<(
@@ -390,7 +412,7 @@ fn fps_system(
     let (mut text, mut visibility, mut transform) = p0.single_mut();
     visibility.is_visible = config.show_fps;
     let fps_diag = diagnostics.get(FrameTimeDiagnosticsPlugin::FPS).unwrap();
-    let fps = fps_diag.value().unwrap_or(0.0)
+    let fps = fps_diag.average().unwrap_or(0.0)
         * if is_turbo.0 {
             config.frame_skip_on_turbo as f64
         } else {
