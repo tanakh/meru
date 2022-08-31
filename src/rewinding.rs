@@ -6,6 +6,7 @@ use crate::{
     app::{AppState, ScreenSprite},
     config::{self, SystemKey},
     core::Emulator,
+    hotkey::HotKey,
     input::InputState,
 };
 
@@ -263,6 +264,7 @@ fn rewinding_system(
     } else if config
         .system_keys
         .just_pressed(&SystemKey::Cancel, &input_state)
+        || config.hotkeys.just_pressed(&HotKey::Menu, &input_state)
     {
         rewinding_state.load_pos = Some(emulator.auto_saved_states.len() - 1);
     }
